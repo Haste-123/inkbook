@@ -597,6 +597,75 @@ function mdLite(s) {
   return h.replace(/\n/g, '<br>');
 }
 const plainText = s => s.replace(/\*\*(.+?)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1').replace(/^#{1,4} /gm, '').replace(/^(\s*)[-*] /gm, '$1• ').trim();
+
+// ---------- Answers become tidy note blocks ----------
+const SUP = { 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', n: 'ⁿ', '+': '⁺', '-': '⁻', i: 'ⁱ', x: 'ˣ' };
+const TEX = { times: '×', cdot: '·', le: '≤', leq: '≤', ge: '≥', geq: '≥', neq: '≠', ne: '≠', pm: '±', infty: '∞', pi: 'π', theta: 'θ', alpha: 'α', beta: 'β',
+  gamma: 'γ', delta: 'δ', Delta: 'Δ', lambda: 'λ', mu: 'μ', sigma: 'σ', Sigma: 'Σ', omega: 'ω', int: '∫', sum: 'Σ', to: '→', rightarrow: '→', Rightarrow: '⇒',
+  approx: '≈', degree: '°', circ: '°', div: '÷', partial: '∂', nabla: '∇', in: '∈', ldots: '…', cdots: '⋯' };
+function tidyMath(s) {
+  return s.replace(/\r/g, '')
+    .replace(/\\\[|\\\]|\\\(|\\\)|\$\$|\$/g, '')
+    .replace(/\\[dt]?frac\{([^{}]*)\}\{([^{}]*)\}/g, '($1)/($2)')
+    .replace(/\\sqrt\{([^{}]*)\}/g, '√($1)')
+    .replace(/\\(?:text|mathrm|mathbf|operatorname)\{([^{}]*)\}/g, '$1')
+    .replace(/\^\{([^{}]*)\}/g, (m, e) => [...e].every(c => SUP[c]) ? [...e].map(c => SUP[c]).join('') : `^(${e})`)
+    .replace(/\^(\d+|n)\b/g, (m, e) => [...e].map(c => SUP[c]).join(''))
+    .replace(/\\([A-Za-z]+)/g, (m, k) => TEX[k] ?? (k === 'left' || k === 'right' ? '' : m))
+    .replace(/\\[,;!]/g, ' ');
+}
+const cleanInline = s => s.replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1').replace(/(^|\s)\*(\S[^*]*\S|\S)\*(?=\s|$)/g, '$1$2').replace(/`([^`]+)`/g, '$1').replace(/^\s*>\s?/, '').trim();
+// Splits an answer into headings, paragraphs, lists/steps and the final answer line
+function answerBlocks(raw) {
+  const blocks = []; let para = [], list = [];
+  const flushP = () => { if (para.length) { blocks.push({ k: 'para', text: para.join('\n') }); para = []; } };
+  const flushL = () => { if (list.length) { blocks.push({ k: 'list', text: list.join('\n') }); list = []; } };
+  for (const line of tidyMath(raw).split('\n')) {
+    const l = line.trim();
+    if (!l || /^[-*_]{3,}$/.test(l)) { flushP(); flushL(); continue; }
+    const bare = cleanInline(l);
+    if (/^(final\s+)?answer\s*[:：]/i.test(bare)) { flushP(); flushL(); blocks.push({ k: 'answer', text: bare }); continue; }
+    const h = l.match(/^#{1,6}\s+(.+)$/) || l.match(/^\*\*([^*]+)\*\*\s*:?\s*$/) || bare.match(/^([^.!?=]{2,40}):$/);
+    if (h) { flushP(); flushL(); blocks.push({ k: 'heading', text: cleanInline(h[1]).replace(/:$/, '') }); continue; }
+    const b = l.match(/^[-*•]\s+(.+)$/);
+    if (b) { flushP(); list.push('•  ' + cleanInline(b[1])); continue; }
+    if (/^(\d+[.)]|step\s*\d+\s*[:.)])\s*/i.test(l)) { flushP(); list.push(bare); continue; }
+    flushL(); para.push(bare);
+  }
+  flushP(); flushL();
+  return blocks;
+}
+// Places the answer next to (or under) the selection as a stack of fixed-width note blocks, selected together
+function insertAnswerNotes(p, box, raw, question) {
+  const blocks = answerBlocks(raw || '');
+  if (!blocks.length) { toast('Nothing to paste. Copy Claude’s answer first.'); return false; }
+  const dark = isDark(p.paperColor), ink = dark ? '#ececf1' : '#1f2430';
+  const W = Math.round(Math.min(560, p.w - 40));
+  let x = box[2] + 28, y = box[1];
+  if (x + W > p.w - 10) { x = clamp(box[0], 20, Math.max(20, p.w - W - 20)); y = box[3] + 20; }
+  const style = {
+    head: { s: 14, c: '#c15f3c', b: true }, heading: { s: 19, c: ink, b: true }, para: { s: 17, c: ink },
+    list: { s: 17, c: ink }, answer: { s: 20, c: dark ? '#4cd787' : '#13844a', b: true },
+  };
+  const before = snap(p), made = [];
+  const add = (k, text) => {
+    const t = { id: uid(), x: Math.round(x), y: Math.round(y), f: 'sans', text, w: W, ...style[k] };
+    made.push(t); p.texts.push(t);
+    y += textHeight(t) + (k === 'head' ? 2 : k === 'heading' ? 4 : 12);
+  };
+  const q = (question || '').trim();
+  add('head', '✦ Claude' + (q ? ' · ' + (q.length > 60 ? q.slice(0, 57) + '…' : q) : ''));
+  for (const bl of blocks) add(bl.k, bl.text);
+  if (y + 30 > p.h) {                                     // make the page longer instead of running off it
+    if (p.bgKey) { p.bgW ||= p.w; p.bgH ||= p.h; }
+    p.h = Math.ceil((y + 60) / 10) * 10; layout();
+  }
+  pushUndo(p, before); refreshPage(p);
+  if (E.tool !== 'lasso') setTool('lasso');
+  setSelection(p, new Set(), new Set(), new Set(made));
+  toast('Answer added as notes. Drag the box to move it all together.', 3200);
+  return true;
+}
 async function askClaude(p, box) {
   const dataUrl = await regionImage(p, box), b64 = dataUrl.split(',')[1];
   const hasKey = !!S.claudeKey;
@@ -612,14 +681,10 @@ async function askClaude(p, box) {
     </div>
     <div class="ask-thread"></div>`, 'wide ask');
   const thread = $('.ask-thread', m.el), input = $('.ask-input input', m.el), history = []; let busy = false;
-  const insertAnswer = txt => {
-    txt = plainText(txt || ''); if (!txt) return toast('Nothing to paste. Copy Claude’s answer first.');
-    const before = snap(p), right = box[2] + 340 < p.w;
-    p.texts.push({ id: uid(), x: right ? box[2] + 24 : box[0], y: right ? box[1] : Math.min(box[3] + 16, p.h - 80), s: 20, c: '#2f5bea', f: 'sans', text: txt });
-    pushUndo(p, before); refreshPage(p); m.close(); toast('Answer added to the page');
-  };
+  let lastQ = '';
+  const insertAnswer = txt => { if (insertAnswerNotes(p, box, txt, lastQ || input.value)) m.close(); };
   $('[data-app]', m.el).onclick = () => {
-    const q = input.value.trim() || ASK_PRESETS[0][0];
+    const q = input.value.trim() || ASK_PRESETS[0][0]; lastQ = q;
     const text = `📓 From Inkbook (my handwritten study notes app)${E.nb ? ` · ${E.nb.title}` : ''}${secAt(E.pages.indexOf(p)).lesson ? ` · ${secAt(E.pages.indexOf(p)).lesson.title}` : ''}\n\n${q}\n\n` +
       `The picture is a part of my notes I selected (handwriting, formulas or slides). If any handwriting is unclear, tell me how you read it. ` +
       `Write math in plain symbols like x², √, π (no LaTeX) so I can paste your answer back into my notes, and finish with a line starting "Answer:".`;
@@ -643,6 +708,7 @@ async function askClaude(p, box) {
   const send = async q => {
     q = q.trim(); if (!q || busy) return;
     if (!S.claudeKey) { input.value = q; return; }
+    lastQ = q;
     if (!navigator.onLine) return bubble('note', 'You’re offline. Ask Claude needs an internet connection. The offline Calculator (⋯ menu) still works.');
     busy = true; input.value = ''; $('.ask-chips', m.el).classList.add('used');
     bubble('me', esc(q));

@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '8';
+const APP_VERSION = '9';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 9e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -279,21 +279,44 @@ function drawTemplate(ctx, p, s) {
   }
   ctx.restore();
 }
+// A text box either has no width (t.w unset: it is as wide as its longest line and only breaks where you
+// pressed Return) or a fixed width t.w in page units (it wraps inside that width). The width never depends
+// on where the box sits on the page, so moving a box never re-wraps its text.
+const textFont = (t, fs) => `${t.i ? 'italic ' : ''}${t.b ? '700 ' : ''}${fs}px ${FONTS[t.f] || FONTS.sans}`;
+function wrapLines(ctx, t, s) {
+  ctx.font = textFont(t, t.s * s);
+  const maxW = t.w ? (t.w - 8) * s : Infinity, out = [];
+  for (const para of (t.text || '').split('\n')) {
+    if (maxW === Infinity) { out.push(para); continue; }
+    let line = '';
+    for (const word of para.split(/(\s+)/)) {
+      const test = line + word;
+      if (line && ctx.measureText(test).width > maxW) { out.push(line.trimEnd()); line = word.trimStart(); }
+      else line = test;
+    }
+    out.push(line);
+  }
+  return out;
+}
+let measureCtx = null;
+const mctx = () => (measureCtx ||= document.createElement('canvas').getContext('2d'));
+function textNaturalWidth(t) { const c = mctx(); c.font = textFont(t, t.s); return Math.max(0, ...(t.text || '').split('\n').map(l => c.measureText(l).width)) + 8; }
+function textHeight(t) { return wrapLines(mctx(), t, 1).length * t.s * 1.3 + 4; }
+// An auto-width box that would run past the page's right edge gets a fixed width so it wraps instead
+function fitTextWidth(p, t) {
+  if (t.w) return false;
+  if (t.x + textNaturalWidth(t) > p.w - 10) { t.w = Math.round(Math.max(120, p.w - t.x - 10)); return true; }
+  return false;
+}
 function drawTexts(ctx, p, s, list = p.texts) {
   for (const t of list) {
     if (!t.text) continue;
-    const fs = t.s * s, lh = fs * 1.3, maxW = (p.w - t.x - 8) * s, x = (t.x + 4) * s;
+    const fs = t.s * s, lh = fs * 1.3, x = (t.x + 4) * s;
     let y = (t.y + 2) * s + fs * 0.15;
-    ctx.font = `${t.i ? 'italic ' : ''}${t.b ? '700 ' : ''}${fs}px ${FONTS[t.f] || FONTS.sans}`; ctx.fillStyle = t.c; ctx.textBaseline = 'top';
-    for (const para of t.text.split('\n')) {
-      let line = '';
-      for (const word of para.split(/(\s+)/)) {
-        const test = line + word;
-        if (line && ctx.measureText(test).width > maxW) { ctx.fillText(line.trimEnd(), x, y); y += lh; line = word.trimStart(); }
-        else line = test;
-      }
-      ctx.fillText(line, x, y); y += lh;
-    }
+    fitTextWidth(p, t);
+    const lines = wrapLines(ctx, t, s);
+    ctx.fillStyle = t.c; ctx.textBaseline = 'top';
+    for (const line of lines) { ctx.fillText(line, x, y); y += lh; }
   }
 }
 function drawImg(ctx, p, im, s, o = {}) {
@@ -1324,8 +1347,7 @@ function textEl(p, t) { return E.els.get(p.id)?.querySelector(`.text-item[data-i
 function textBox(p, t) {
   const d = textEl(p, t);
   if (d && d.offsetWidth) return [t.x, t.y, t.x + d.offsetWidth / E.unit, t.y + d.offsetHeight / E.unit];
-  const lines = (t.text || ' ').split('\n');
-  return [t.x, t.y, t.x + Math.max(...lines.map(l => l.length)) * t.s * 0.55 + 8, t.y + lines.length * t.s * 1.3 + 4];
+  return [t.x, t.y, t.x + (t.w || textNaturalWidth(t)), t.y + textHeight(t)];
 }
 function selBox(sel) {
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
@@ -1381,7 +1403,12 @@ function applySelTransform(dx, dy, k) {
     ns.add(n); return n;
   });
   p.images = p.images.map(im => { if (!sel.images.has(im)) return im; const n = { ...im, x: tx(im.x), y: ty(im.y), w: im.w * k, h: im.h * k }; ni.add(n); return n; });
-  p.texts = p.texts.map(t => { if (!sel.texts.has(t)) return t; const n = { ...t, x: tx(t.x), y: ty(t.y), s: +(t.s * k).toFixed(1) }; nt.add(n); return n; });
+  p.texts = p.texts.map(t => {
+    if (!sel.texts.has(t)) return t;
+    const n = { ...t, x: tx(t.x), y: ty(t.y), s: +(t.s * k).toFixed(1) };
+    if (t.w) n.w = Math.round(t.w * k);                 // resizing keeps the same line breaks
+    nt.add(n); return n;
+  });
   pushUndo(p, before); refreshPage(p); setSelection(p, ns, ni, nt);
 }
 function hideSelMenu() { selMenu?.remove(); selMenu = null; }
@@ -1506,12 +1533,22 @@ function positionText(p, t, d) {
   d.style.setProperty('--x', t.x); d.style.setProperty('--y', t.y); d.style.color = t.c;
   d.style.setProperty('--fs', t.s); d.style.fontFamily = FONTS[t.f] || FONTS.sans;
   d.style.fontWeight = t.b ? '700' : ''; d.style.fontStyle = t.i ? 'italic' : '';
+  d.classList.toggle('fixed', !!t.w); d.style.setProperty('--tw', t.w || 0);
 }
 function removeText(p, t, d) { p.texts = p.texts.filter(x => x !== t); d.remove(); markDirty(p); }
 function makeTextEl(p, t) {
   const d = document.createElement('div'); d.className = 'text-item'; d.dataset.id = t.id;
-  d.innerHTML = '<div class="text-tools"><div class="grip" title="Drag to move">⠿ Move</div><button class="text-style" data-pop-anchor title="Color, font, size">Aa</button><button class="text-del" title="Delete">Delete</button></div><div class="text-body" spellcheck="true"></div>';
+  d.innerHTML = '<div class="text-tools"><div class="grip" title="Drag to move">⠿ Move</div><button class="text-style" data-pop-anchor title="Color, font, size">Aa</button><button class="text-del" title="Delete">Delete</button></div><div class="text-body" spellcheck="true"></div><div class="text-resize" title="Drag to change the width"></div>';
   const body = $('.text-body', d);
+  fitTextWidth(p, t);                                  // older long boxes get a fixed width once, so they never re-wrap
+  const rz = $('.text-resize', d);
+  rz.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation(); try { rz.setPointerCapture(e.pointerId); } catch { }
+    const sx = e.clientX, w0 = t.w || body.offsetWidth / E.unit;
+    const mv = ev => { t.w = Math.round(clamp(w0 + (ev.clientX - sx) / E.unit, 60, Math.max(60, p.w - t.x))); positionText(p, t, d); };
+    const up = () => { rz.removeEventListener('pointermove', mv); rz.removeEventListener('pointerup', up); rz.removeEventListener('pointercancel', up); markDirty(p); };
+    rz.addEventListener('pointermove', mv); rz.addEventListener('pointerup', up); rz.addEventListener('pointercancel', up);
+  });
   $('.text-style', d).addEventListener('pointerdown', e => {
     e.preventDefault(); e.stopPropagation();
     openPopover(e.currentTarget, 'style', box => buildStyleControls(box, {
@@ -1525,7 +1562,7 @@ function makeTextEl(p, t) {
   });
   body.contentEditable = 'plaintext-only'; if (body.contentEditable !== 'plaintext-only') body.contentEditable = 'true';
   body.textContent = t.text; positionText(p, t, d);
-  body.addEventListener('input', () => { t.text = body.innerText.replace(/\n$/, ''); markDirty(p); });
+  body.addEventListener('input', () => { t.text = body.innerText.replace(/\n$/, ''); if (fitTextWidth(p, t)) positionText(p, t, d); markDirty(p); });
   body.addEventListener('blur', () => { if (!t.text.trim()) removeText(p, t, d); else if (S.sideOpen && S.sideTab === 'saved') renderEdSide(); });
   $('.text-del', d).addEventListener('pointerdown', e => {
     e.preventDefault(); e.stopPropagation(); const before = snap(p); removeText(p, t, d); pushUndo(p, before);
@@ -1534,7 +1571,7 @@ function makeTextEl(p, t) {
   g.addEventListener('pointerdown', e => {
     e.preventDefault(); e.stopPropagation(); try { g.setPointerCapture(e.pointerId); } catch { }
     const host = E.els.get(p.id), a = { rect: host.getBoundingClientRect(), page: p }, start = toPt(a, e), ox = t.x, oy = t.y;
-    const mv = ev => { const q = toPt(a, ev); t.x = clamp(ox + q.x - start.x, 0, p.w - 20); t.y = clamp(oy + q.y - start.y, 0, p.h - 20); positionText(p, t, d); };
+    const mv = ev => { const q = toPt(a, ev); t.x = clamp(ox + q.x - start.x, 0, Math.max(0, p.w - (t.w || 20))); t.y = clamp(oy + q.y - start.y, 0, p.h - 20); positionText(p, t, d); };
     const up = () => { g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); g.removeEventListener('pointercancel', up); markDirty(p); };
     g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up);
   });

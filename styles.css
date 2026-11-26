@@ -214,13 +214,19 @@ mark { background: #ffe14d88; color: inherit; border-radius: 3px; }
 .sec-divider.lv2 { padding-left: 18px; }
 
 .text-layer { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
-.text-item { position: absolute; pointer-events: none; left: calc(var(--x) * var(--s) * 1px); top: calc(var(--y) * var(--s) * 1px); max-width: calc(100% - var(--x) * var(--s) * 1px); }
+/* a text box's width never depends on where it sits, so moving it never re-wraps the text */
+.text-item { position: absolute; pointer-events: none; left: calc(var(--x) * var(--s) * 1px); top: calc(var(--y) * var(--s) * 1px); width: max-content; }
 .tool-text .text-item { pointer-events: auto; }
 .text-body {
-  font-size: calc(var(--fs) * var(--s) * 1px); line-height: 1.3; white-space: pre-wrap; overflow-wrap: anywhere;
-  padding: calc(var(--s) * 2px) calc(var(--s) * 4px); min-width: 1ch; min-height: 1.3em; outline: none; border-radius: 4px;
+  font-size: calc(var(--fs) * var(--s) * 1px); line-height: 1.3; white-space: pre;
+  padding: calc(var(--s) * 2px) calc(var(--s) * 4px); min-width: 1ch; min-height: 1.3em; outline: none; border-radius: 4px; box-sizing: border-box;
   -webkit-user-select: text; user-select: text;
 }
+.text-item.fixed { width: auto; }
+.text-item.fixed .text-body { white-space: pre-wrap; overflow-wrap: anywhere; width: calc(var(--tw) * var(--s) * 1px); }
+.text-resize { display: none; position: absolute; right: -10px; top: 50%; width: 16px; height: 36px; transform: translateY(-50%); border-radius: 6px;
+  background: var(--accent); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.3); cursor: ew-resize; touch-action: none; }
+.tool-text .text-item:focus-within .text-resize { display: block; }
 .tool-text .text-body { outline: 1px dashed var(--accent-soft); }
 .tool-text .text-item:focus-within .text-body { outline: 1.5px solid var(--accent); }
 .text-tools { display: none; position: absolute; left: 0; bottom: calc(100% + 6px); gap: 2px; padding: 3px; border-radius: 11px;
