@@ -15,7 +15,36 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
+const APP_VERSION = '7';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 9e6;
+// Keep the installed app up to date: check for a new version whenever the app comes back to the
+// front, and switch to it automatically (or offer a one-tap update while a notebook is open).
+let swReg = null;
+function setupUpdates() {
+  let hadController = !!navigator.serviceWorker.controller, reloading = false;
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    swReg = reg; reg.update().catch(() => { });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => { }); });
+    setInterval(() => reg.update().catch(() => { }), 20 * 60e3);
+  }).catch(() => { });
+  navigator.serviceWorker.addEventListener('controllerchange', async () => {
+    if (!hadController) { hadController = true; return; }       // first install, nothing to refresh
+    if (reloading) return; reloading = true;
+    if (!E.nb) { location.reload(); return; }
+    await flush();
+    const b = document.createElement('div'); b.className = 'update-bar';
+    b.innerHTML = `<span>✨ A new version of ${esc(S.appName)} is ready</span><button class="btn primary">Update now</button>`;
+    b.querySelector('button').onclick = async () => { await flush(); await saveNb(); location.reload(); };
+    document.body.appendChild(b);
+  });
+}
+async function checkForUpdate() {
+  if (!swReg) return toast('Updates work once the app is installed from its web address');
+  if (!navigator.onLine) return toast('You’re offline. Connect to check for updates.');
+  toast('Checking…', 4000);
+  await swReg.update().catch(() => { });
+  setTimeout(() => { if (!swReg.installing && !swReg.waiting) toast(`You have the latest version (${APP_VERSION})`); }, 2500);
+}
 const LIBS = {
   pdf: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
   pdfWorker: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
@@ -790,12 +819,27 @@ function updateInd() {
   }
 }
 function updateZoomLabel() { $('#zoomLbl').textContent = Math.round(E.zoom * 100) + '%'; }
+// Zoom keeps the exact spot under your fingers (or the screen centre) in place: remember which page point
+// is under that screen point, re-layout, then scroll so the same page point is back under it.
+function anchorAt(cx, cy) {
+  let best = null, bd = Infinity;
+  for (const p of E.pages) {
+    const el = E.els.get(p.id); if (!el) continue;
+    const r = el.getBoundingClientRect(), d = cy < r.top ? r.top - cy : cy > r.bottom ? cy - r.bottom : 0;
+    if (d < bd) { bd = d; best = { p, r }; if (!d) break; }
+  }
+  return best && { p: best.p, fx: (cx - best.r.left) / best.r.width, fy: (cy - best.r.top) / best.r.height };
+}
+function restoreAnchor(a, cx, cy) {
+  if (!a) return;
+  const r = E.els.get(a.p.id).getBoundingClientRect();
+  scroller.scrollLeft += r.left + a.fx * r.width - cx;
+  scroller.scrollTop += r.top + a.fy * r.height - cy;
+}
 function zoomAt(z, cx, cy) {
-  z = clamp(z, ZMIN, ZMAX); const r = z / E.zoom; if (Math.abs(r - 1) < 0.001) return;
-  const pr = pagesEl.getBoundingClientRect(), vx = cx - pr.left, vy = cy - pr.top;
-  const sl = scroller.scrollLeft, st = scroller.scrollTop;
-  E.zoom = z; layout(); updateZoomLabel();
-  scroller.scrollLeft = sl + vx * r - vx; scroller.scrollTop = st + vy * r - vy;
+  z = clamp(z, ZMIN, ZMAX); if (Math.abs(z / E.zoom - 1) < 0.001) return;
+  const a = anchorAt(cx, cy);
+  E.zoom = z; layout(); updateZoomLabel(); restoreAnchor(a, cx, cy);
 }
 function zoomCenter(z) { const r = scroller.getBoundingClientRect(); zoomAt(z, r.left + r.width / 2, r.top + r.height / 2); }
 
@@ -1551,14 +1595,12 @@ function pinchMove(a, b, manualPan) {
 }
 function endPinch() {
   const p = pinch; pinch = null; const r = p.ratio;
+  const a = anchorAt(p.lx, p.ly);            // measured while the pinch preview is still on screen
   pagesEl.style.transform = '';
   if (Math.abs(r - 1) < 0.01) return;
   if (tapG) tapG.moved = true;
-  const pr = pagesEl.getBoundingClientRect(), vx = p.lx - pr.left, vy = p.ly - pr.top;
-  const X = p.ox + (vx - p.ox) / r, Y = p.oy + (vy - p.oy) / r;
-  const sl = scroller.scrollLeft, st = scroller.scrollTop;
-  E.zoom *= r; layout(); updateZoomLabel();
-  scroller.scrollLeft = sl + X * r - vx; scroller.scrollTop = st + Y * r - vy;
+  E.zoom = clamp(E.zoom * r, ZMIN, ZMAX); layout(); updateZoomLabel();
+  restoreAnchor(a, p.lx, p.ly);
 }
 
 // ---------- Page resizing (drag edges like Paint) ----------
@@ -1821,6 +1863,7 @@ async function insertDocFile(f, i) {
 // ---------- Settings UI ----------
 function openSettings() {
   const m = openModal(`<h2>Settings</h2>
+    <div class="version-row"><span>Version <b>${APP_VERSION}</b></span><button class="chip" id="sUpdate">Check for updates</button></div>
     <div class="field"><label class="lbl">App name</label><input type="text" id="sName" value="${esc(S.appName)}"></div>
     <div class="field"><label class="lbl">Theme</label><div class="seg" id="sTheme">${segHtml([['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], S.theme)}</div></div>
     <div class="field"><label class="lbl">Accent color</label><div class="seg" id="sAccent">${swatchHtml(ACCENTS, S.accent)}<label class="cswatch custom" title="Custom color"><input type="color" id="sAccentCustom" value="${S.accent}"></label></div></div>
@@ -1853,6 +1896,7 @@ function openSettings() {
   wireSeg($('#sSize', m.el), v => { S.pageSize = v; saveSettings(); });
   wireSeg($('#sPaperColor', m.el), v => { S.paperColor = v; saveSettings(); });
   wireSeg($('#sPen', m.el), v => { S.penStyle = v; saveSettings(); });
+  $('#sUpdate', m.el).onclick = () => checkForUpdate();
   wireSeg($('#sFont', m.el), v => { S.uiFont = v; saveSettings(); });
   wireSeg($('#sDesk', m.el), v => { S.desk = v; saveSettings(); });
   wireSeg($('#sCover', m.el), v => { S.coverSize = v; saveSettings(); });
@@ -1956,7 +2000,6 @@ async function boot() {
   scroller.addEventListener('touchmove', onTouch, { passive: false });
   scroller.addEventListener('touchend', onTouchEnd);
   scroller.addEventListener('touchcancel', onTouchEnd);
-  pagesEl.addEventListener('click', e => { const d = e.target.closest('.ptab'); if (d) guard(sectionMenu)(E.nb.sections.find(s => s.id === d.dataset.sid)); });
   scroller.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); zoomAt(E.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY); } }, { passive: false });
   let indQ = false;
   scroller.addEventListener('scroll', () => { if (!indQ) { indQ = true; requestAnimationFrame(() => { indQ = false; updateInd(); placeFloats(); }); } }, { passive: true });
@@ -2008,8 +2051,7 @@ async function boot() {
   addEventListener('pagehide', () => flush());
 
   navigator.storage?.persist?.();
-  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1'))
-    navigator.serviceWorker.register('sw.js').catch(() => { });
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) setupUpdates();
   await migrate();
   showLibrary();
 }

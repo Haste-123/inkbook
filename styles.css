@@ -653,6 +653,53 @@ input:focus, select.select:focus { border-color: var(--accent); }
 .route:active { transform: scale(.98); }
 @media (max-width: 640px) { .ask-routes { grid-template-columns: 1fr; } }
 
+/* =================== v7: updates, quick panel, drag & drop =================== */
+.update-bar { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 64px); transform: translateX(-50%); z-index: 150;
+  display: flex; align-items: center; gap: 14px; padding: 8px 8px 8px 18px; border-radius: 999px; background: #1c1d22; color: #fff;
+  box-shadow: 0 12px 36px rgba(0,0,0,.3); font-size: 14.5px; font-weight: 550; animation: pop .2s; white-space: nowrap; }
+.update-bar .btn { height: 36px; border-radius: 999px; }
+.version-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-size: 14px; margin-bottom: 4px; }
+
+.pop-section { width: 340px; }
+.sp-title { height: 44px !important; font-size: 17px !important; font-weight: 650; margin-bottom: 10px; }
+.sp-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sp-colors { margin: 10px 0 4px; }
+.sp-block { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.stepper { display: flex; align-items: center; gap: 6px; }
+.stepper .icon-btn { width: 40px; height: 40px; background: var(--surface-2); border-radius: 12px; }
+.stepper .fwd svg.i { transform: scaleX(-1); }
+.st-val { display: flex; flex-direction: column; align-items: center; min-width: 74px; line-height: 1.15; }
+.st-val b { font-size: 16px; } .st-val span { font-size: 11.5px; color: var(--muted); }
+.stepper .chip { margin-left: auto; }
+.sp-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.sp-actions .chip, .sp-row .chip { display: inline-flex; align-items: center; gap: 5px; }
+.sp-actions .chip svg.i, .sp-row .chip svg.i { width: 15px; height: 15px; }
+.chip.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+
+.ptab { touch-action: none; cursor: grab; }
+.ptab.lifted, .lifted { opacity: .35; }
+.drag-ghost { position: fixed; z-index: 300; pointer-events: none; transform: translate(-50%, -50%) rotate(-2deg) scale(1.04); box-shadow: 0 14px 34px rgba(0,0,0,.3) !important; opacity: .95; }
+.drag-ghost.side-ghost { transform: rotate(-1.5deg) scale(1.03); border-radius: 12px; background: var(--surface); }
+.page.drop-target { outline: 3px dashed var(--accent); outline-offset: 6px; }
+.side-body.dragging { scroll-behavior: auto; }
+.drag-hint { font-size: 12px; color: var(--muted); text-align: center; padding: 2px 0 8px; }
+.pg-card.drop-before::before, .pg-card.drop-after::before { content: ""; position: absolute; top: 0; bottom: 0; width: 4px; border-radius: 4px; background: var(--accent); z-index: 3; }
+.pg-card.drop-before::before { left: -7px; } .pg-card.drop-after::before { right: -7px; }
+.les-head.drop-before, .tp-row.drop-before { box-shadow: inset 0 3px 0 var(--accent); }
+.les-head.drop-after, .tp-row.drop-after { box-shadow: inset 0 -3px 0 var(--accent); }
+.out-end { margin-top: 8px; padding: 14px; border: 2px dashed var(--border); border-radius: 12px; text-align: center; font-size: 13px; color: var(--muted); }
+.out-end.drop-on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.les-head, .tp-row, .pg-card { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+/* toolbar that fits every iPad: the rarely-needed buttons move into the ⋯ menu on narrower screens */
+@media (max-width: 1050px) { .nb-title { display: none; } }
+@media (max-width: 960px) {
+  #bookmarkBtn, #addPageBtn, #imageBtn { display: none; }
+  .tb-pill .icon-btn, .tb-group > .icon-btn { width: 38px; height: 38px; }
+  .tb-mid { gap: 6px; } .toolbar { gap: 4px; padding-left: 6px; padding-right: 6px; }
+}
+@media (max-width: 760px) { #redoBtn { display: none; } .tb-pill .icon-btn, .tb-group > .icon-btn { width: 36px; height: 36px; } }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 1299px) { .opts-inline .swatches .swatch:nth-child(n+6) { display: none; } }
 @media (max-width: 1099px) {

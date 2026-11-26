@@ -320,7 +320,7 @@ async function renderEdSide() {
 async function onSideClick(e) {
   const t = e.target;
   const tab = t.closest('[data-tab]'); if (tab) return setSideTab(tab.dataset.tab);
-  const sm = t.closest('[data-smenu]'); if (sm) return sectionMenu(E.nb.sections.find(s => s.id === sm.dataset.smenu));
+  const sm = t.closest('[data-smenu]'); if (sm) return sectionPopover(E.nb.sections.find(s => s.id === sm.dataset.smenu), sm);
   const at = t.closest('[data-addtopic]'); if (at) return addTopicTo(at.dataset.addtopic);
   const im = t.closest('[data-imenu]'); if (im) return itemMenu(E.nb.items.find(x => x.id === im.dataset.imenu));
   const um = t.closest('[data-unmark]'); if (um) return toggleBookmark(+um.dataset.unmark);
@@ -345,7 +345,7 @@ function moreRoot(box) {
       ${tile('dup', 'copy', 'Duplicate')}${tile('png', 'export', 'Save image')}${tile('selall', 'selall', 'Select all')}${tile('del', 'trash', 'Delete', 'danger')}</div>
     <div class="tile-sec">Notebook</div><div class="tiles">${tile('sec', 'layers', 'Lesson / topic')}${tile('saved', 'star', 'Saved items')}${tile('cover', 'palette', 'Cover')}${tile('rename', 'edit', 'Rename')}
       ${tile('pdf', 'export', 'Export PDF')}${tile('docx', 'file', 'Export Word')}</div>
-    <div class="tile-sec">Study tools</div><div class="tiles">${tile('ask', 'sparkle', 'Ask Claude', 'claude')}${tile('calc', 'calc', 'Calculator')}${tile('laser', 'laser', 'Laser')}${tile('help', 'help', 'Help')}</div>`;
+    <div class="tile-sec">Study tools</div><div class="tiles">${tile('find', 'search', 'Find')}${tile('ask', 'sparkle', 'Ask Claude', 'claude')}${tile('calc', 'calc', 'Calculator')}${tile('laser', 'laser', 'Laser')}${tile('help', 'help', 'Help')}</div>`;
   box.onclick = guard(async e => { const t = e.target.closest('[data-m]'); if (t) await moreAction(t.dataset.m, box); });
 }
 function rePlace() { placePopover($('#moreBtn')); }
@@ -366,6 +366,7 @@ async function moreAction(k, box) {
     rename: () => inlineRename($('#nbTitle'), E.nb.title, async v => { E.nb.title = v; await saveNb(); }),
     pdf: async () => { await flush(); await exportPDF(E.nb, E.pages); }, docx: async () => { await flush(); await exportDocx(E.nb, E.pages); },
     ask: () => { const r = visibleBox(p); return askClaude(p, r); },
+    find: () => openFind(),
     laser: () => { setTool('laser'); toast('Laser pointer on: tap the pen to go back', 2200); }, help: () => openHelp(),
   }[k];
   if (act) await act();

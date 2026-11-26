@@ -50,7 +50,7 @@ function confirmBox(msg, ok = 'Delete') {
 // =====================================================================
 function tabHtml(s, no) {
   const topic = s.level === 2;
-  return `<button class="ptab ${topic ? 'tp' : 'ls'}" data-sid="${s.id}" style="--c:${esc(s.color || S.accent)}" title="${topic ? 'Topic' : 'Lesson'} · tap for options">` +
+  return `<button class="ptab ${topic ? 'tp' : 'ls'}" data-sid="${s.id}" data-pop-anchor style="--c:${esc(s.color || S.accent)}" title="${topic ? 'Topic' : 'Lesson'}: tap for options, drag onto another page to move">` +
     `${topic ? '<i></i>' : `<b>${no || ''}</b>`}<span>${esc(s.title)}</span></button>`;
 }
 async function sectionMenu(s) {
