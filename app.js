@@ -281,7 +281,7 @@ function renderPage(ctx, p, s, o = {}) {
   ctx.fillStyle = p.paperColor || '#fff'; ctx.fillRect(0, 0, p.w * s, p.h * s);
   if (p.bgKey) {
     const img = cachedImg(p.bgKey);
-    if (img) ctx.drawImage(img, 0, 0, p.w * s, (p.bgH || p.h) * s);
+    if (img) ctx.drawImage(img, (p.bgX || 0) * s, (p.bgY || 0) * s, (p.bgW || p.w) * s, (p.bgH || p.h) * s);
     else if (!o.sync) loadImg(p.bgKey).then(() => { if (E.visible.has(p.id)) schedulePaint(p); });
   }
   drawTemplate(ctx, p, s);
@@ -302,22 +302,6 @@ function openModal(html, cls = '') {
   const m = { el: back.firstElementChild, onClose: null, close() { if (!back.isConnected) return; back.remove(); m.onClose?.(); } };
   back.addEventListener('click', e => { if (e.target === back || e.target.closest('[data-close]')) m.close(); });
   document.body.appendChild(back); return m;
-}
-function menu(title, items) {
-  return new Promise(res => {
-    const m = openModal(`${title ? `<h2>${esc(title)}</h2>` : ''}<div class="menu-list">${items.map((it, i) => it.head
-      ? `<div class="mhead">${esc(it.head)}</div>`
-      : `<button data-i="${i}" class="${it.danger ? 'danger' : ''}">${esc(it.label)}${it.hint ? `<small>${esc(it.hint)}</small>` : ''}</button>`).join('')}</div>`, 'small');
-    let v = null;
-    m.el.addEventListener('click', e => { const b = e.target.closest('[data-i]'); if (b) { v = items[+b.dataset.i].value; m.close(); } });
-    m.onClose = () => res(v);
-  });
-}
-function confirmBox(msg, ok = 'Delete') {
-  return new Promise(res => {
-    const m = openModal(`<p class="msg">${esc(msg)}</p><div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn danger" data-ok>${esc(ok)}</button></div>`, 'small');
-    let v = false; $('[data-ok]', m.el).onclick = () => { v = true; m.close(); }; m.onClose = () => res(v);
-  });
 }
 function promptText(title, value = '', placeholder = '') {
   return new Promise(res => {
@@ -345,8 +329,9 @@ function showProgress(title) {
 }
 function setProgress(msg, frac) { if (!prog) return; $('[data-msg]', prog.el).textContent = msg; if (frac != null) $('.progress i', prog.el).style.width = clamp(frac, 0, 1) * 100 + '%'; }
 function closeProgress() { prog?.close(); prog = null; }
-function readyToShare(blob, name) {
-  const m = openModal(`<h2>Ready</h2><p class="msg">${esc(name)} · ${fmtSize(blob.size)}</p><p class="hint">Use “Save to Files” to keep it in iCloud Drive, or send it to another app.</p>
+function readyToShare(blob, name, hint = 'Use “Save to Files” to keep it in iCloud Drive, or send it to another app.') {
+  const isImg = blob.type.startsWith('image/'), url = isImg ? URL.createObjectURL(blob) : null;
+  const m = openModal(`<h2>Ready</h2>${isImg ? `<div class="ready-img"><img src="${url}" alt=""></div>` : ''}<p class="msg">${esc(name)} · ${fmtSize(blob.size)}</p><p class="hint">${esc(hint)}</p>
     <div class="modal-actions"><button class="btn" data-close>Close</button><button class="btn primary" data-go>Share / Save…</button></div>`, 'small');
   $('[data-go]', m.el).onclick = async () => {
     const file = new File([blob], name, { type: blob.type });
@@ -453,6 +438,11 @@ async function renderSearch(q) {
   }
   for (const p of pages) {
     const n = nbMap.get(p.notebookId); if (!n) continue;
+    const words = [...(p.pdfWords || []), ...(p.ocr?.words || [])], wi = words.findIndex(w => w.t.toLowerCase().includes(ql.split(/\s+/)[0]));
+    if (wi >= 0 && words.map(w => w.t).join(' ').toLowerCase().includes(ql)) {
+      const w = words[wi], from = p.pdfWords?.includes(w) ? 'PDF' : 'Handwriting';
+      hits.push({ nb: n, pageId: p.id, kind: from, text: words.slice(Math.max(0, wi - 5), wi + 9).map(x => x.t).join(' '), box: w.b, color: from === 'PDF' ? '#8d8d86' : '#12a594' });
+    }
     for (const t of p.texts || []) {
       const i = t.text.toLowerCase().indexOf(ql);
       if (i >= 0) hits.push({ nb: n, pageId: p.id, kind: 'Text', text: (i > 30 ? '…' : '') + t.text.slice(Math.max(0, i - 30), i + q.length + 50), box: [t.x, t.y, t.x + 100, t.y + 40] });
@@ -700,7 +690,7 @@ async function leaveNotebook() {
 async function saveNb() { if (!E.nb) return; E.nb.pages = E.pages.map(p => p.id); E.nb.coverKey = E.pages[0]?.bgKey || null; await db.put('notebooks', E.nb); }
 
 const dirty = new Set(); let saveT = null;
-function markDirty(p) { dirty.add(p); clearTimeout(saveT); saveT = setTimeout(flush, 700); if (S.sideOpen) queueThumb(p); }
+function markDirty(p) { p.rev = (p.rev || 0) + 1; dirty.add(p); clearTimeout(saveT); saveT = setTimeout(flush, 700); if (S.sideOpen) queueThumb(p); }
 async function flush() {
   clearTimeout(saveT); const list = [...dirty]; dirty.clear();
   for (const p of list) await db.put('pages', p);
@@ -718,14 +708,11 @@ function buildPages() {
     starts.get(e.i).push({ s: e.s, no: lessonNo, meta: `${b - a} page${b - a > 1 ? 's' : ''}${topics ? ` · ${topics} topic${topics > 1 ? 's' : ''}` : ''}` });
   }
   E.pages.forEach((p, i) => {
-    for (const { s, no, meta } of starts.get(i) || []) {
-      const d = document.createElement('div'); d.className = 'sec-divider lv' + (s.level || 1); d.dataset.sid = s.id;
-      d.style.setProperty('--c', s.color || S.accent);
-      d.innerHTML = dividerHtml(s, no, meta);
-      pagesEl.appendChild(d);
-    }
     const el = document.createElement('div'); el.className = 'page' + (p.bookmark ? ' bookmarked' : ''); el.dataset.id = p.id;
-    el.innerHTML = '<canvas class="ink"></canvas><div class="text-layer"></div><div class="page-num"></div><div class="grow grow-b" data-grow="b" title="Drag to make the page longer"><i></i></div><div class="grow grow-r" data-grow="r" title="Drag to make the page wider"><i></i></div>';
+    el.innerHTML = '<canvas class="ink"></canvas><div class="text-layer"></div><div class="page-num"></div>' +
+      ['t', 'b', 'l', 'r'].map(d => `<div class="grow grow-${d}" data-grow="${d}" title="Drag to grow the page"><i></i></div>`).join('');
+    const tabs = starts.get(i);
+    if (tabs) el.insertAdjacentHTML('beforeend', `<div class="page-tabs">${tabs.map(({ s, no }) => tabHtml(s, no)).join('')}</div>`);
     pagesEl.appendChild(el); E.els.set(p.id, el); renderTexts(p, el); io.observe(el);
   });
   layout();
@@ -777,11 +764,10 @@ function currentIndex() {
 }
 function scrollToPage(i, smooth) {
   const el = E.els.get(E.pages[i]?.id); if (!el) return;
-  let t = el; while (t.previousElementSibling?.classList.contains('sec-divider')) t = t.previousElementSibling;
   // Centre the page horizontally (pages can have different widths) and, if it fits, vertically too
   const vw = scroller.clientWidth, vh = scroller.clientHeight;
   const left = el.offsetLeft + el.offsetWidth / 2 - vw / 2;
-  const blockTop = t.offsetTop, blockH = el.offsetTop + el.offsetHeight - blockTop;
+  const blockTop = el.offsetTop - ($('.page-tabs', el) ? 30 : 0), blockH = el.offsetTop + el.offsetHeight - blockTop;
   const top = blockH + 20 < vh ? blockTop - (vh - blockH) / 2 : blockTop - 10;
   scroller.scrollTo({ top: Math.max(0, top), left: Math.max(0, left), behavior: smooth ? 'smooth' : 'auto' });
 }
@@ -1088,7 +1074,7 @@ function trySnap(a) {
 }
 function onDown(e) {
   if (!E.nb || pinch) return;
-  if (e.target.closest('.text-item, .float-menu, .grow')) return;
+  if (e.target.closest('.text-item, .float-menu, .grow, .page-tabs, .hit')) return;
   if (e.pointerType === 'pen') notePencil();
   const pageEl = e.target.closest('.page');
   if (!pageEl) { if (E.tool === 'lasso') clearSelection(); hidePasteMenu(); return; }
@@ -1384,8 +1370,9 @@ function showSelMenu() {
   hideSelMenu(); if (!E.sel) return;
   const p = E.sel.page, b = E.sel.box, host = E.els.get(p.id); if (!host) return;
   selMenu = floatMenu(host, p, (b[0] + b[2]) / 2, b[1],
-    `<button data-a="ask" class="ask-btn">✦ Ask Claude</button><button data-a="style" data-pop-anchor>Style</button><button data-a="cut">Cut</button><button data-a="copy">Copy</button><button data-a="dup">Duplicate</button><button data-a="save">★ Save</button><button data-a="del" class="danger">Delete</button>`,
-    (act, btn) => act === 'style' ? openSelStyle(btn) : act === 'ask' ? guard(askClaude)(E.sel.page, E.sel.box) : selAction(act), b[3]);
+    `<button data-a="ask" class="ask-btn">✦ Ask Claude</button><button data-a="style" data-pop-anchor>Style</button><button data-a="img">Save image</button><button data-a="cut">Cut</button><button data-a="copy">Copy</button><button data-a="dup">Duplicate</button><button data-a="save">★ Save</button><button data-a="del" class="danger">Delete</button>`,
+    (act, btn) => act === 'style' ? openSelStyle(btn) : act === 'ask' ? guard(askClaude)(E.sel.page, E.sel.box)
+      : act === 'img' ? guard(saveSelectionImage)() : selAction(act), b[3]);
 }
 function hidePasteMenu() { pasteMenu?.remove(); pasteMenu = null; }
 function showPasteMenu(p, el, pt) {
@@ -1575,27 +1562,40 @@ function endPinch() {
 }
 
 // ---------- Page resizing (drag edges like Paint) ----------
+function shiftContent(p, dx, dy) {
+  p.strokes = p.strokes.map(st => ({ ...st, p: shiftPts(st.p, dx, dy) }));
+  p.texts = p.texts.map(t => ({ ...t, x: t.x + dx, y: t.y + dy }));
+  p.images = p.images.map(im => ({ ...im, x: im.x + dx, y: im.y + dy }));
+  if (p.bgKey) { p.bgX = (p.bgX || 0) + dx; p.bgY = (p.bgY || 0) + dy; }
+  for (const it of E.nb.items) if (it.pageId === p.id) it.box = [it.box[0] + dx, it.box[1] + dy, it.box[2] + dx, it.box[3] + dy];
+  p.ocr = null;
+}
 function onGrowDown(e) {
   const g = e.target.closest('.grow'); if (!g || !E.nb) return;
   e.preventDefault(); e.stopPropagation();
   const el = g.closest('.page'), p = E.byId.get(el.dataset.id), dir = g.dataset.grow;
-  if (p.bgKey && dir === 'r') return toast('PDF pages can only be made longer, not wider.');
   try { g.setPointerCapture(e.pointerId); } catch { }
-  g.classList.add('dragging');
-  const sx = e.clientX, sy = e.clientY, w0 = p.w, h0 = p.h;
-  if (p.bgKey && !p.bgH) p.bgH = h0;           // PDF background keeps its original size
+  g.classList.add('dragging'); clearSelection();
+  if (p.bgKey) { p.bgW ||= p.w; p.bgH ||= p.h; }   // a PDF/photo background keeps its own size
+  const sx = e.clientX, sy = e.clientY, w0 = p.w, h0 = p.h, snap10 = v => Math.round(v / 10) * 10;
+  let shiftX = 0, shiftY = 0;                          // growing up/left moves the content so it stays where it is
   const lbl = document.createElement('div'); lbl.className = 'grow-size'; el.appendChild(lbl);
   const mv = ev => {
-    // only the paper grows — everything on it stays exactly where it is
-    if (dir === 'b') p.h = Math.round(clamp(h0 + (ev.clientY - sy) / E.unit, 300, 30000) / 10) * 10;
-    else p.w = Math.round(clamp(w0 + (ev.clientX - sx) / E.unit, 400, 8000) / 10) * 10;
+    const dx = (ev.clientX - sx) / E.unit, dy = (ev.clientY - sy) / E.unit;
+    let scrollBy = 0;
+    if (dir === 'b') p.h = clamp(snap10(h0 + dy), 300, 30000);
+    if (dir === 'r') p.w = clamp(snap10(w0 + dx), 400, 8000);
+    if (dir === 't') { const add = clamp(snap10(-dy), 300 - h0, 30000 - h0); if (add !== shiftY) { shiftContent(p, 0, add - shiftY); scrollBy = (add - shiftY) * E.unit; shiftY = add; renderTexts(p, el); } p.h = h0 + add; }
+    if (dir === 'l') { const add = clamp(snap10(-dx), 400 - w0, 8000 - w0); if (add !== shiftX) { shiftContent(p, add - shiftX, 0); shiftX = add; renderTexts(p, el); } p.w = w0 + add; }
     el.style.width = p.w * E.unit + 'px'; el.style.height = p.h * E.unit + 'px';
+    if (scrollBy) scroller.scrollTop += scrollBy;
     lbl.textContent = `${p.w} × ${p.h}`; schedulePaint(p);
   };
   const up = () => {
     try { g.releasePointerCapture(e.pointerId); } catch { }
     g.classList.remove('dragging'); lbl.remove();
     g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); g.removeEventListener('pointercancel', up);
+    if (shiftX || shiftY) { E.undo = E.undo.filter(u => u.id !== p.id); E.redo = E.redo.filter(u => u.id !== p.id); updateUndoBtns(); saveNb(); }
     markDirty(p); layout();
   };
   g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up);
@@ -1641,7 +1641,8 @@ async function insertImages(files, target) {
 function secList() {
   if (!E.nb) return [];
   const idx = new Map(E.pages.map((p, i) => [p.id, i]));
-  return E.nb.sections.filter(s => idx.has(s.pageId)).map(s => ({ s, i: idx.get(s.pageId) })).sort((a, b) => a.i - b.i);
+  // lessons and topics can share a page ("stacked"): the lesson always comes first
+  return E.nb.sections.filter(s => idx.has(s.pageId)).map(s => ({ s, i: idx.get(s.pageId) })).sort((a, b) => a.i - b.i || (a.s.level || 1) - (b.s.level || 1));
 }
 function secAt(i) {
   let lesson = null, topic = null;
@@ -1652,37 +1653,6 @@ function secRange(entry, list) {
   const k = list.indexOf(entry), lv = entry.s.level || 1; let end = E.pages.length;
   for (let j = k + 1; j < list.length; j++) if ((list[j].s.level || 1) <= lv && list[j].i > entry.i) { end = list[j].i; break; }
   return [entry.i, end];
-}
-async function sectionMenu(s) {
-  const list = secList(), e = list.find(x => x.s === s); if (!e) return;
-  const [a, b] = secRange(e, list);
-  const v = await menu(s.title, [
-    { label: 'Go to', value: 'go' }, { label: 'Rename, type & color', value: 'edit' },
-    { label: 'Add a page at the end of this ' + (s.level === 2 ? 'topic' : 'lesson'), value: 'addp' },
-    { label: 'Move up', value: 'up' }, { label: 'Move down', value: 'down' },
-    { label: 'Remove heading (keep pages)', value: 'rm' },
-    { label: `Delete with its ${b - a} page${b - a > 1 ? 's' : ''}`, value: 'del', danger: true },
-  ]);
-  if (v === 'go') { scrollToPage(a, true); closeSideIfOverlay(); }
-  if (v === 'edit') { const r = await sectionForm(s); if (r) { Object.assign(s, { title: r.title, level: r.level, color: r.color }); await saveNb(); buildPages(); renderEdSide(); } }
-  if (v === 'addp') {
-    const last = E.pages[b - 1], p = newPage(E.nb, last && !last.bgKey ? { template: last.template, paperColor: last.paperColor, w: last.w, h: last.h } : {});
-    E.pages.splice(b, 0, p); E.byId.set(p.id, p); await db.put('pages', p); await saveNb(); buildPages(); scrollToPage(b); renderEdSide();
-  }
-  if (v === 'up' || v === 'down') moveSection(e, list, v === 'up' ? -1 : 1);
-  if (v === 'rm') { E.nb.sections = E.nb.sections.filter(x => x !== s); await saveNb(); buildPages(); renderEdSide(); updateInd(); }
-  if (v === 'del' && await confirmBox(`Delete “${s.title}” and its ${b - a} page(s)? This can’t be undone.`)) await deletePages(a, b);
-}
-async function moveSection(e, list, dir) {
-  const lv = e.s.level || 1, [a, b] = secRange(e, list), k = list.indexOf(e);
-  let other = null;
-  if (dir < 0) { for (let j = k - 1; j >= 0; j--) if ((list[j].s.level || 1) <= lv) { other = list[j]; break; } }
-  else { for (let j = k + 1; j < list.length; j++) if ((list[j].s.level || 1) <= lv && list[j].i >= b) { other = list[j]; break; } }
-  if (!other || (other.s.level || 1) < lv) return toast('Can’t move further ' + (dir < 0 ? 'up' : 'down'));
-  const [oa, ob] = secRange(other, list), P = E.pages;
-  E.pages = dir < 0 ? [...P.slice(0, oa), ...P.slice(a, b), ...P.slice(oa, a), ...P.slice(b)]
-    : [...P.slice(0, a), ...P.slice(oa, ob), ...P.slice(a, b), ...P.slice(ob)];
-  await saveNb(); buildPages(); renderEdSide(); updateInd();
 }
 async function deletePages(a, b) {
   clearSelection();
@@ -1986,7 +1956,7 @@ async function boot() {
   scroller.addEventListener('touchmove', onTouch, { passive: false });
   scroller.addEventListener('touchend', onTouchEnd);
   scroller.addEventListener('touchcancel', onTouchEnd);
-  pagesEl.addEventListener('click', e => { const d = e.target.closest('.sec-divider'); if (d) sectionMenu(E.nb.sections.find(s => s.id === d.dataset.sid)); });
+  pagesEl.addEventListener('click', e => { const d = e.target.closest('.ptab'); if (d) guard(sectionMenu)(E.nb.sections.find(s => s.id === d.dataset.sid)); });
   scroller.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); zoomAt(E.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY); } }, { passive: false });
   let indQ = false;
   scroller.addEventListener('scroll', () => { if (!indQ) { indQ = true; requestAnimationFrame(() => { indQ = false; updateInd(); placeFloats(); }); } }, { passive: true });

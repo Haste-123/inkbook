@@ -32,7 +32,22 @@ async function pdfToPages(file, nb, label = file.name) {
     const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
     const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
     await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-    out.push(await canvasToPage(c, nb)); pg.cleanup();
+    const p = await canvasToPage(c, nb);
+    try {   // keep the PDF's own text (with positions) so Find can search it exactly
+      const tc = await pg.getTextContent(), k = PAGE_W / vp.width, words = [];
+      for (const it of tc.items) {
+        if (!it.str?.trim()) continue;
+        const [x, y] = vp.convertToViewportPoint(it.transform[4], it.transform[5]);
+        const w = it.width * vp.scale, h = (it.height || Math.hypot(it.transform[2], it.transform[3])) * vp.scale, n = it.str.length;
+        let off = 0;
+        for (const part of it.str.split(/(\s+)/)) {
+          if (part.trim()) words.push({ t: part, b: [x + w * off / n, y - h, x + w * (off + part.length) / n, y].map(v => Math.round(v * k)) });
+          off += part.length;
+        }
+      }
+      if (words.length) { p.pdfWords = words; await db.put('pages', p); }
+    } catch (e) { console.warn(e); }
+    out.push(p); pg.cleanup();
   }
   pdf.destroy(); return out;
 }
@@ -299,6 +314,8 @@ const HELP = [
       <li><b>Lasso</b>: circle things (or switch to Rectangle mode) to select strokes, images and text. Tap a single stroke or image to select just that. Drag inside the box to move, drag the round corner handle to resize, and tap a color to recolor. The menu has Cut, Copy, Duplicate, <b>★ Save as</b> and Delete. Tap an empty spot to paste, on any page or even another notebook.</li>
       <li><b>Text</b>: tap to type. Drag the ⠿ handle to move, × to delete. Choose font and size in the options. With Apple Pencil you can handwrite inside a text box and iPad turns it into typed text (Scribble).</li>
       <li><b>Style</b>: select anything with the lasso, then tap <b>Style</b> to change its color, the thickness of handwriting, or the font, size, bold and italic of text. A text box being typed in has its own <b>Aa</b> button.</li>
+      <li><b>Save image</b>: select anything with the lasso, then tap <b>Save image</b> → Share / Save → <b>Save Image</b> to put it in your Photos.</li>
+      <li><b>✦ Ask Claude</b>: select a question or formula. <b>Open in the Claude app</b> sends it to Claude using your subscription; copy the reply and tap <b>Paste the answer</b> to put it on your page. With an API key (Settings), answers can appear right inside Inkbook.</li>
       <li><b>Laser pointer</b> (⋯ menu → Tools): a fading red trail for presenting. Never saved. Tap the pen to leave it.</li>
       <li><b>Image</b>: insert from Photos, the camera or Files. You can also drag images in from Photos in Split View, or paste them.</li>
     </ul>
@@ -308,7 +325,8 @@ const HELP = [
       <li><b>Two-finger tap</b>: undo · <b>three-finger tap</b>: redo</li>
       <li><b>Pinch</b>: zoom · <b>one finger</b> (Pencil-only mode) or <b>two fingers</b>: scroll</li>
       <li><b>Hold the pen still</b> at the end of a stroke: snap to a shape</li>
-      <li><b>Drag a page's bottom or right edge</b> (blue handle): make the page longer or wider, like in Paint</li>
+      <li><b>Drag any edge of a page</b> (the blue handles on all four sides): grow the page up, down, left or right, like in Paint. Your notes stay where they are.</li>
+      <li><b>⌘F</b> or the 🔍 button: <b>Find</b> words in your handwriting, typed text and PDFs. Handwriting is read on your iPad; the first time, a small reader (about 7 MB) downloads once.</li>
       <li>Tap the <b>page counter</b> at the bottom to jump to any lesson or topic</li>
       <li>In Pencil-only mode, <b>tap an image or text box with your finger</b> to select it, then drag it with your finger</li>
       <li><b>Double-tap a notebook's name</b> (at the top, or under its cover in the library) to rename it. This also works for folder names.</li>
@@ -348,6 +366,7 @@ function openHelp(topic = 0) {
 
 // ---------- Start ----------
 boot().then(() => {
+  bootFind();
   $('#helpSide')?.addEventListener('click', () => openHelp());
   document.addEventListener('keydown', e => { if (e.key === '?' && !e.target.closest?.('[contenteditable], input, textarea')) openHelp(); });
   if (!localStorage.getItem('inkbook.seenHelp2')) { try { localStorage.setItem('inkbook.seenHelp2', '1'); } catch { } toast('New: folders, lessons, images, shapes, saved questions, import & convert. Tap Help in the sidebar for a tour.', 6000); }

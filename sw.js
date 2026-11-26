@@ -1,6 +1,6 @@
 /* Offline support: caches the app + libraries so it works with no internet. */
-const VERSION = 'inkbook-v5';
-const CORE = ['./', './index.html', './styles.css', './app.js', './features.js', './io.js', './manifest.json',
+const VERSION = 'inkbook-v6';
+const CORE = ['./', './index.html', './styles.css', './app.js', './features.js', './extras.js', './io.js', './manifest.json',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 const LIBS = [
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
@@ -9,6 +9,8 @@ const LIBS = [
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
+  'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
+  'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
 ];
 
 self.addEventListener('install', e => {

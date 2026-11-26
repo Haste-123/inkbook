@@ -186,7 +186,7 @@ function dividerHtml(s, num, meta) {
 function sectionForm(s, i, preset = {}) {
   const isNew = !s;
   const v = s ? { title: s.title, level: s.level || 1, color: s.color }
-    : { title: '', level: preset.level || 1, color: preset.color || COVER_COLORS[secList().length % 9], at: preset.at || 'new' };
+    : { title: '', level: preset.level || 1, color: preset.color || COVER_COLORS[secList().length % 9], at: preset.atIndex != null ? 'lessonEnd' : preset.at || 'new' };
   const fixedAt = preset.atIndex != null;
   return new Promise(res => {
     const m = openModal(`<h2>${isNew ? 'Add to the outline' : 'Edit ' + (v.level === 2 ? 'topic' : 'lesson')}</h2>
@@ -196,21 +196,25 @@ function sectionForm(s, i, preset = {}) {
       </div>
       <input type="text" class="big-input" name="t" value="${esc(v.title)}" placeholder="Title, e.g. Lecture 3: Integration by parts">
       <div class="field"><label class="lbl">Color</label><div class="seg" id="sfColor">${swatchHtml(COVER_COLORS.slice(0, 9), v.color)}</div></div>
-      ${isNew && !fixedAt ? `<div class="field"><label class="lbl">Where does it start?</label><div class="opt-cards seg" id="sfAt">
-        <button class="opt-card${v.at === 'new' ? ' on' : ''}" data-v="new"><b>＋ New page</b><span>after page ${i + 1}</span></button>
-        <button class="opt-card${v.at === 'here' ? ' on' : ''}" data-v="here"><b>📍 This page</b><span>page ${i + 1} becomes the start</span></button>
+      ${isNew ? `<div class="field"><label class="lbl">Where does it start?</label><div class="opt-cards seg" id="sfAt">
+        ${fixedAt ? `<button class="opt-card${v.at === 'lessonEnd' ? ' on' : ''}" data-v="lessonEnd"><b>＋ New page</b><span>${esc(preset.where || 'at the end of the lesson')}</span></button>` :
+          `<button class="opt-card${v.at === 'new' ? ' on' : ''}" data-v="new"><b>＋ New page</b><span>after page ${i + 1}</span></button>`}
+        <button class="opt-card${v.at === 'here' ? ' on' : ''}" data-v="here"><b>📍 This page</b><span>page ${i + 1}, can share it with a lesson</span></button>
         <button class="opt-card${v.at === 'end' ? ' on' : ''}" data-v="end"><b>⤓ At the end</b><span>new page after page ${E.pages.length}</span></button>
       </div></div>` : ''}
-      ${fixedAt ? `<p class="hint">A new page is added for it ${esc(preset.where || '')}.</p>` : ''}
-      <div class="field"><label class="lbl">Preview</label><div class="sd-preview"><div class="sec-divider" id="sfPrev"></div></div></div>
+      <div class="field"><label class="lbl">Preview</label><div class="tab-preview"><div class="page-tabs static" id="sfPrev"></div><div class="mock-page"></div></div></div>
       <div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" data-ok>${isNew ? 'Add' : 'Save'}</button></div>`);
     const prev = () => {
-      const d = $('#sfPrev', m.el); d.className = 'sec-divider lv' + v.level; d.style.setProperty('--c', v.color);
-      d.innerHTML = dividerHtml({ title: $('[name=t]', m.el).value.trim() || (v.level === 2 ? 'New topic' : 'New lesson'), level: v.level }, secList().filter(e => (e.s.level || 1) === 1).length + 1, '1 page');
+      const t = $('[name=t]', m.el).value.trim() || (v.level === 2 ? 'New topic' : 'New lesson');
+      const lessonNow = secAt(i).lesson, n = secList().filter(e => (e.s.level || 1) === 1).length + (v.level === 1 ? 1 : 0);
+      const tabs = v.level === 2 && lessonNow && v.at === 'here' && secList().some(e => e.s === lessonNow && e.i === i)
+        ? tabHtml(lessonNow, n) + tabHtml({ id: 'x', title: t, level: 2, color: v.color }, 0)
+        : tabHtml({ id: 'x', title: t, level: v.level, color: v.color }, n);
+      $('#sfPrev', m.el).innerHTML = tabs;
     };
     wireSeg($('.type-cards', m.el), x => { v.level = +x; prev(); });
     wireSeg($('#sfColor', m.el), x => { v.color = x; prev(); });
-    if ($('#sfAt', m.el)) wireSeg($('#sfAt', m.el), x => (v.at = x));
+    if ($('#sfAt', m.el)) wireSeg($('#sfAt', m.el), x => { v.at = x; prev(); });
     $('[name=t]', m.el).addEventListener('input', prev);
     let out = null; const ok = () => { v.title = $('[name=t]', m.el).value.trim() || (v.level === 2 ? 'New topic' : 'New lesson'); out = v; m.close(); };
     $('[data-ok]', m.el).onclick = ok; $('[name=t]', m.el).onkeydown = e => { if (e.key === 'Enter') ok(); };
@@ -220,9 +224,9 @@ function sectionForm(s, i, preset = {}) {
 async function addSectionFlow(preset = {}) {
   const i = currentIndex(), r = await sectionForm(null, i, preset); if (!r) return;
   let pid;
-  if (r.at === 'here' && preset.atIndex == null) pid = E.pages[i].id;
+  if (r.at === 'here') pid = E.pages[i].id;
   else {
-    const at = preset.atIndex != null ? preset.atIndex : r.at === 'end' ? E.pages.length : i + 1;
+    const at = r.at === 'lessonEnd' ? preset.atIndex : r.at === 'end' ? E.pages.length : i + 1;
     const ref = E.pages[Math.max(0, at - 1)];
     const p = newPage(E.nb, ref && !ref.bgKey ? { template: ref.template, paperColor: ref.paperColor, w: ref.w, h: ref.h } : {});
     E.pages.splice(at, 0, p); E.byId.set(p.id, p); await db.put('pages', p); pid = p.id;
@@ -594,17 +598,48 @@ function mdLite(s) {
 const plainText = s => s.replace(/\*\*(.+?)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1').replace(/^#{1,4} /gm, '').replace(/^(\s*)[-*] /gm, '$1• ').trim();
 async function askClaude(p, box) {
   const dataUrl = await regionImage(p, box), b64 = dataUrl.split(',')[1];
+  const hasKey = !!S.claudeKey;
+  const shotFile = new File([await (await fetch(dataUrl)).blob()], 'from-my-notes.png', { type: 'image/png' });
   const m = openModal(`<div class="ask-head"><span class="ask-badge">${icon('sparkle')}Ask Claude</span><button class="icon-btn" data-close>${icon('x')}</button></div>
     <div class="ask-top"><div class="ask-shot"><img src="${dataUrl}" alt="Your selection"></div>
-      <div class="ask-chips">${ASK_PRESETS.map(([q, l]) => `<button class="chip" data-q="${esc(q)}">${l}</button>`).join('')}</div></div>
-    <div class="ask-thread"></div>
-    <form class="ask-input"><input type="text" placeholder="Ask anything about this, e.g. “solve for x”" autocomplete="off"><button class="btn primary" type="submit">Ask</button></form>`, 'wide ask');
+      <div class="ask-side"><div class="ask-label">${hasKey ? 'Tap a question or type your own' : 'Pick a question or type your own'}</div>
+      <div class="ask-chips">${ASK_PRESETS.map(([q, l]) => `<button class="chip" data-q="${esc(q)}">${l}</button>`).join('')}</div></div></div>
+    <form class="ask-input"><input type="text" placeholder="e.g. Solve for x and show the steps" autocomplete="off">${hasKey ? '<button class="btn primary" type="submit">Ask here</button>' : ''}</form>
+    <div class="ask-routes">
+      <button class="route app" type="button" data-app><span class="route-ic">${icon('sparkle')}</span><span><b>Open in the Claude app</b><small>Uses your Claude subscription. Sends this picture and your question.</small></span></button>
+      <button class="route" type="button" data-paste><span class="route-ic">${icon('paste')}</span><span><b>Paste the answer</b><small>Copy Claude's reply, then tap here to add it next to your selection</small></span></button>
+    </div>
+    <div class="ask-thread"></div>`, 'wide ask');
   const thread = $('.ask-thread', m.el), input = $('.ask-input input', m.el), history = []; let busy = false;
+  const insertAnswer = txt => {
+    txt = plainText(txt || ''); if (!txt) return toast('Nothing to paste. Copy Claude’s answer first.');
+    const before = snap(p), right = box[2] + 340 < p.w;
+    p.texts.push({ id: uid(), x: right ? box[2] + 24 : box[0], y: right ? box[1] : Math.min(box[3] + 16, p.h - 80), s: 20, c: '#2f5bea', f: 'sans', text: txt });
+    pushUndo(p, before); refreshPage(p); m.close(); toast('Answer added to the page');
+  };
+  $('[data-app]', m.el).onclick = () => {
+    const q = input.value.trim() || ASK_PRESETS[0][0];
+    const text = `${q}\n\n(The picture is part of my study notes. Please write math in plain symbols like x², √, π and finish with a line starting "Answer:".)`;
+    if (navigator.canShare?.({ files: [shotFile] })) {
+      navigator.share({ files: [shotFile], text }).catch(() => { });     // must run straight from the tap
+      toast('Choose “Claude” in the share sheet. If it’s not there, tap “More” to add it.', 5000);
+    } else {
+      const a = document.createElement('a'), u = URL.createObjectURL(shotFile); a.href = u; a.download = shotFile.name; a.click(); setTimeout(() => URL.revokeObjectURL(u), 20000);
+      navigator.clipboard?.writeText(text).catch(() => { });
+      window.open('https://claude.ai/new', '_blank', 'noopener');
+      toast('Picture saved and question copied. Attach the picture in Claude and paste the question.', 6000);
+    }
+  };
+  $('[data-paste]', m.el).onclick = () => {
+    (navigator.clipboard?.readText ? navigator.clipboard.readText() : Promise.reject())
+      .then(insertAnswer)
+      .catch(async () => { const t = await promptText('Paste Claude’s answer', '', 'Long-press here → Paste'); if (t) insertAnswer(t); });
+  };
   const bubble = (cls, html) => { const d = document.createElement('div'); d.className = 'bubble ' + cls; d.innerHTML = html; thread.appendChild(d); thread.scrollTop = thread.scrollHeight; return d; };
   const needKey = () => bubble('note', `<b>One-time setup:</b> Ask Claude uses your own Claude API key.<ol><li>Go to <b>console.anthropic.com</b> → API Keys → Create key.</li><li>Open Inkbook <b>Settings → Ask Claude</b> and paste it in.</li></ol>Each question usually costs a few cents on your Anthropic account. <button class="chip" data-settings>Open Settings</button>`);
   const send = async q => {
     q = q.trim(); if (!q || busy) return;
-    if (!S.claudeKey) return needKey();
+    if (!S.claudeKey) { input.value = q; return; }
     if (!navigator.onLine) return bubble('note', 'You’re offline. Ask Claude needs an internet connection. The offline Calculator (⋯ menu) still works.');
     busy = true; input.value = ''; $('.ask-chips', m.el).classList.add('used');
     bubble('me', esc(q));
@@ -635,11 +670,7 @@ async function askClaude(p, box) {
         const acts = document.createElement('div'); acts.className = 'bubble-acts';
         acts.innerHTML = `<button class="chip" data-ins>Insert on page</button><button class="chip" data-copy>Copy</button>`;
         out.after(acts);
-        $('[data-ins]', acts).onclick = () => {
-          const before = snap(p), right = box[2] + 340 < p.w;
-          p.texts.push({ id: uid(), x: right ? box[2] + 24 : box[0], y: right ? box[1] : Math.min(box[3] + 16, p.h - 80), s: 20, c: '#2f5bea', f: 'sans', text: plainText(text) });
-          pushUndo(p, before); refreshPage(p); m.close(); toast('Answer added to the page');
-        };
+        $('[data-ins]', acts).onclick = () => insertAnswer(text);
         $('[data-copy]', acts).onclick = async () => { try { await navigator.clipboard.writeText(plainText(text)); toast('Copied'); } catch { toast('Couldn’t copy'); } };
       }
     } catch (e) { console.error(e); history.pop(); out.classList.remove('typing'); out.classList.add('err'); out.textContent = claudeError(e, A); }
@@ -651,5 +682,5 @@ async function askClaude(p, box) {
     if (e.target.closest('[data-settings]')) { m.close(); openSettings(); }
   });
   input.addEventListener('keydown', e => e.stopPropagation());
-  if (!S.claudeKey) needKey();
+  void needKey;
 }
