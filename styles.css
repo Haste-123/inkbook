@@ -725,6 +725,36 @@ input:focus, select.select:focus { border-color: var(--accent); }
 .answer-sheet.in-bubble { font-size: 15px; }
 .answer-sheet.in-bubble .ans-head { display: none; }
 
+/* =================== v12: tables & graphs =================== */
+.tbl { position: absolute; left: calc(var(--x) * var(--s) * 1px); top: calc(var(--y) * var(--s) * 1px); pointer-events: none; }
+.tool-text .tbl { pointer-events: auto; }
+.tbl-grid { display: grid; border: calc(max(1px, var(--s) * 1.2px)) solid rgba(90,100,130,.55); }
+.tc { font-size: calc(var(--fs) * var(--s) * 1px); line-height: 1.3; padding: calc(var(--s) * 6px) calc(var(--s) * 8px); min-height: 1.3em;
+  white-space: pre-wrap; overflow-wrap: anywhere; outline: none; -webkit-user-select: text; user-select: text;
+  border-right: calc(max(1px, var(--s) * 1.2px)) solid rgba(90,100,130,.55); border-bottom: calc(max(1px, var(--s) * 1.2px)) solid rgba(90,100,130,.55); }
+.tc.th { font-weight: 700; background: rgba(120,130,160,.14); }
+.tool-text .tc:focus { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.tbl-tools { display: none; position: absolute; left: 0; bottom: calc(100% + 6px); gap: 2px; padding: 3px; border-radius: 11px; background: #1c1d22;
+  box-shadow: 0 4px 16px rgba(0,0,0,.25); white-space: nowrap; z-index: 6; font: 500 13px -apple-system, system-ui, sans-serif; color: #fff; }
+.tool-text .tbl:focus-within .tbl-tools { display: flex; }
+.tbl-tools > * { border: 0; background: none; color: #fff; font-size: 13px; padding: 6px 9px; border-radius: 8px; }
+.tbl-tools > *:active { background: rgba(255,255,255,.15); }
+.tbl-tools .tb-graph { color: #9fd3ff; font-weight: 650; }
+.tbl-tools .tbl-grip { cursor: move; touch-action: none; }
+.tbl-resize { display: none; position: absolute; right: -10px; top: 50%; width: 16px; height: 36px; transform: translateY(-50%); border-radius: 6px;
+  background: var(--accent); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.3); cursor: ew-resize; touch-action: none; }
+.tool-text .tbl:focus-within .tbl-resize { display: block; }
+.tbl-size { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.stepper-row { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.stepper-row span { flex: 1; } .stepper-row b { min-width: 26px; text-align: center; font-size: 17px; }
+.stepper-row .icon-btn { width: 38px; height: 38px; background: var(--surface-2); border-radius: 11px; font-size: 20px; }
+.tbl-mini { display: grid; gap: 3px; margin: 10px 0; }
+.tbl-mini i { height: 14px; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--border); }
+.tbl-mini i.h { background: var(--accent-soft); }
+.graph-wrap { background: #fff; border-radius: 14px; border: 1px solid var(--border); padding: 8px; overflow: auto; }
+.graph-prev { display: block; max-width: 100%; height: auto !important; }
+.seg.ys .chip.dim { opacity: .55; }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 1299px) { .opts-inline .swatches .swatch:nth-child(n+6) { display: none; } }
 @media (max-width: 1099px) {

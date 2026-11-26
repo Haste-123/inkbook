@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '11';
+const APP_VERSION = '12';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -192,7 +192,7 @@ const db = (() => {
     pagesOf: async id => wrap((await st('pages')).index('nb').getAll(id)),
   };
 })();
-const normPage = p => { p.strokes ||= []; p.texts ||= []; p.images ||= []; return p; };
+const normPage = p => { p.strokes ||= []; p.texts ||= []; p.images ||= []; p.tables ||= []; return p; };
 const pageBlobKeys = p => [p.bgKey, ...(p.images || []).map(i => i.key)].filter(Boolean);
 async function copyBlob(key, prefix = 'img_') {
   const b = await db.get('blobs', key); if (!b) return null;
@@ -346,7 +346,7 @@ function renderPage(ctx, p, s, o = {}) {
     if (v) { const b = bbox(st), m = st.w; if (off(b[0] - m, b[1] - m, b[2] + m, b[3] + m)) continue; }
     drawStroke(ctx, st, s, dark);
   }
-  if (o.texts) drawTexts(ctx, p, s);
+  if (o.texts) { drawTexts(ctx, p, s); drawTables(ctx, p, s); }
 }
 async function renderThumb(canvas, p) {
   await preloadPage(p);
@@ -1027,7 +1027,7 @@ function selScreenRect() {
 }
 
 // ---------- Undo ----------
-const snap = p => ({ strokes: p.strokes.slice(), texts: p.texts.slice(), images: p.images.slice() });
+const snap = p => ({ strokes: p.strokes.slice(), texts: p.texts.slice(), images: p.images.slice(), tables: (p.tables || []).map(t => structuredClone(t)) });
 function pushUndo(p, before) {
   E.undo.push({ id: p.id, before, after: snap(p) }); if (E.undo.length > 300) E.undo.shift();
   E.redo = []; markDirty(p); updateUndoBtns();
@@ -1036,6 +1036,7 @@ function applyHist(from, to, key) {
   clearSelection(); const u = from.pop(); if (!u) return;
   const p = E.byId.get(u.id); if (!p) return applyHist(from, to, key);
   p.strokes = u[key].strokes.slice(); p.texts = u[key].texts.slice(); p.images = u[key].images.slice();
+  if (u[key].tables) p.tables = u[key].tables.map(t => structuredClone(t));
   to.push(u); refreshPage(p); markDirty(p); updateUndoBtns();
 }
 const undo = () => applyHist(E.undo, E.redo, 'before');
@@ -1093,40 +1094,59 @@ function shapePts(kind, x0, y0, x1, y1) {
   } else if (kind === 'triangle') { add((x0 + x1) / 2, y0); add(x1, y1); add(x0, y1); add((x0 + x1) / 2, y0); }
   return P;
 }
+// Shape recognition for "hold to snap". The stroke is first smoothed and re-spaced evenly, which removes
+// Pencil jitter and the cluster of points made while holding still, then compared with a line, an
+// ellipse and a rectangle. Tuned to accept honest hand-drawn shapes but leave scribbles alone.
+function resampleStroke(q, step = 4) {
+  const pts = [];
+  for (let i = 0; i < q.length; i += 3) pts.push([q[i], q[i + 1]]);
+  const sm = pts.map((p, i) => i === 0 || i === pts.length - 1 ? p
+    : [(pts[i - 1][0] + p[0] * 2 + pts[i + 1][0]) / 4, (pts[i - 1][1] + p[1] * 2 + pts[i + 1][1]) / 4]);
+  const out = [sm[0]]; let carry = 0;
+  for (let i = 1; i < sm.length; i++) {
+    let [ax, ay] = sm[i - 1]; const [bx, by] = sm[i]; let d = Math.hypot(bx - ax, by - ay);
+    while (carry + d >= step) {
+      const t = (step - carry) / d; ax += (bx - ax) * t; ay += (by - ay) * t; out.push([ax, ay]);
+      d = Math.hypot(bx - ax, by - ay); carry = 0;
+    }
+    carry += d;
+  }
+  const last = sm[sm.length - 1];
+  if (Math.hypot(last[0] - out[out.length - 1][0], last[1] - out[out.length - 1][1]) > step * 0.5) out.push(last);
+  return out;
+}
 function recognize(q) {
-  const n = q.length / 3; if (n < 4) return null;
-  let L = 0; for (let i = 3; i < q.length; i += 3) L += Math.hypot(q[i] - q[i - 3], q[i + 1] - q[i - 2]);
-  if (L < 40) return null;
-  const x0 = q[0], y0 = q[1], xe = q[q.length - 3], ye = q[q.length - 2], dEnd = Math.hypot(xe - x0, ye - y0);
-  // Straight line: nearly as long as the distance between its ends, and every point close to that chord.
-  // (Strict on purpose: only snaps when you clearly meant a line.)
+  if (q.length / 3 < 4) return null;
+  const P = resampleStroke(q), n = P.length;
+  let L = 0; for (let i = 1; i < n; i++) L += Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]);
+  if (L < 40 || n < 6) return null;
+  const [x0, y0] = P[0], [xe, ye] = P[n - 1], dEnd = Math.hypot(xe - x0, ye - y0);
+  // Straight line
   if (dEnd > 40) {
     let maxDev = 0, sumDev = 0;
-    for (let i = 0; i < q.length; i += 3) {
-      const dev = Math.abs((xe - x0) * (y0 - q[i + 1]) - (x0 - q[i]) * (ye - y0)) / dEnd;
-      maxDev = Math.max(maxDev, dev); sumDev += dev;
-    }
-    if (L / dEnd < 1.12 && maxDev < Math.max(6, dEnd * 0.05) && sumDev / n < Math.max(2.5, dEnd * 0.02)) return { kind: 'line', x0, y0, x1: xe, y1: ye };
+    for (const [x, y] of P) { const dev = Math.abs((xe - x0) * (y0 - y) - (x0 - x) * (ye - y0)) / dEnd; maxDev = Math.max(maxDev, dev); sumDev += dev; }
+    if (L / dEnd < 1.15 && maxDev < Math.max(8, dEnd * 0.07) && sumDev / n < Math.max(3, dEnd * 0.03)) return { kind: 'line', x0, y0, x1: xe, y1: ye };
   }
-  // Closed shapes must end close to where they started
-  if (dEnd > L * 0.15) return null;
+  // Closed shapes: the end must come back near the start (a small gap or overshoot is fine)
   let bx0 = 1e9, by0 = 1e9, bx1 = -1e9, by1 = -1e9;
-  for (let i = 0; i < q.length; i += 3) { bx0 = Math.min(bx0, q[i]); bx1 = Math.max(bx1, q[i]); by0 = Math.min(by0, q[i + 1]); by1 = Math.max(by1, q[i + 1]); }
+  for (const [x, y] of P) { bx0 = Math.min(bx0, x); bx1 = Math.max(bx1, x); by0 = Math.min(by0, y); by1 = Math.max(by1, y); }
   const w = bx1 - bx0, h = by1 - by0; if (w < 30 || h < 30) return null;
-  const cx = (bx0 + bx1) / 2, cy = (by0 + by1) / 2, rx = w / 2, ry = h / 2, m = Math.min(w, h);
+  const m = Math.min(w, h), head = P.slice(0, Math.max(3, Math.round(n * 0.25)));
+  const gap = Math.min(...head.map(([x, y]) => Math.hypot(x - xe, y - ye)));
+  if (gap > m * 0.38 || dEnd > L * 0.3) return null;
+  const cx = (bx0 + bx1) / 2, cy = (by0 + by1) / 2, rx = w / 2, ry = h / 2;
   let eErr = 0, eMax = 0, rErr = 0, rMax = 0;
-  const corners = [[bx0, by0], [bx1, by0], [bx1, by1], [bx0, by1]].map(() => Infinity);
-  for (let i = 0; i < q.length; i += 3) {
-    const x = q[i], y = q[i + 1];
+  const C = [[bx0, by0], [bx1, by0], [bx1, by1], [bx0, by1]], corners = [Infinity, Infinity, Infinity, Infinity];
+  for (const [x, y] of P) {
     const e = Math.abs(Math.hypot((x - cx) / rx, (y - cy) / ry) - 1); eErr += e; eMax = Math.max(eMax, e);
     const r = Math.min(Math.abs(x - bx0), Math.abs(x - bx1), Math.abs(y - by0), Math.abs(y - by1)) / m; rErr += r; rMax = Math.max(rMax, r);
-    [[bx0, by0], [bx1, by0], [bx1, by1], [bx0, by1]].forEach(([kx, ky], k) => { corners[k] = Math.min(corners[k], Math.hypot(x - kx, y - ky)); });
+    C.forEach(([kx, ky], k) => { corners[k] = Math.min(corners[k], Math.hypot(x - kx, y - ky)); });
   }
   eErr /= n; rErr /= n;
-  // the drawn path must also be about as long as the shape's outline: a scribble is much longer
+  // the path must also be about as long as the shape's outline (a scribble is much longer)
   const ellP = Math.PI * (3 * (rx + ry) - Math.sqrt((3 * rx + ry) * (rx + 3 * ry))), rectP = 2 * (w + h);
-  const isEllipse = eErr < 0.08 && eMax < 0.22 && L / ellP > 0.85 && L / ellP < 1.25;
-  const isRect = rErr < 0.05 && rMax < 0.16 && corners.every(d => d < m * 0.2) && L / rectP > 0.85 && L / rectP < 1.2;
+  const isEllipse = eErr < 0.12 && eMax < 0.35 && L / ellP > 0.8 && L / ellP < 1.35;
+  const isRect = rErr < 0.08 && rMax < 0.25 && corners.every(d => d < m * 0.25) && L / rectP > 0.8 && L / rectP < 1.3;
   if (isRect && (!isEllipse || rErr < eErr)) return { kind: 'rect', x0: bx0, y0: by0, x1: bx1, y1: by1 };
   if (isEllipse) return { kind: 'ellipse', x0: bx0, y0: by0, x1: bx1, y1: by1 };
   return null;
@@ -1171,7 +1191,7 @@ function onFingerUp(e) {
   if (hit) { if (E.tool !== 'lasso') setTool('lasso'); setSelection(f.page, hit.strokes, hit.images, hit.texts); }
   else if (E.sel) clearSelection();
 }
-function armHold(a) { clearTimeout(a.holdT); a.holdT = setTimeout(() => trySnap(a), 750); }
+function armHold(a) { clearTimeout(a.holdT); a.holdT = setTimeout(() => trySnap(a), 650); }
 function trySnap(a) {
   if (active !== a || a.mode !== 'ink') return;
   const r = recognize(a.stroke.p); if (!r) return;
@@ -1573,7 +1593,7 @@ function openSelStyle(anchor) {
 }
 
 // ---------- Text boxes ----------
-function renderTexts(p, el) { const layer = el.querySelector('.text-layer'); layer.innerHTML = ''; p.texts.forEach(t => layer.appendChild(makeTextEl(p, t))); }
+function renderTexts(p, el) { const layer = el.querySelector('.text-layer'); layer.innerHTML = ''; p.texts.forEach(t => layer.appendChild(makeTextEl(p, t))); renderTables(p, el); }
 function positionText(p, t, d) {
   d.style.setProperty('--x', t.x); d.style.setProperty('--y', t.y); d.style.color = t.c;
   d.style.setProperty('--fs', t.s); d.style.fontFamily = FONTS[t.f] || FONTS.sans;
@@ -1719,6 +1739,7 @@ function shiftContent(p, dx, dy) {
   p.strokes = p.strokes.map(st => ({ ...st, p: shiftPts(st.p, dx, dy) }));
   p.texts = p.texts.map(t => ({ ...t, x: t.x + dx, y: t.y + dy }));
   p.images = p.images.map(im => ({ ...im, x: im.x + dx, y: im.y + dy }));
+  p.tables = (p.tables || []).map(t => ({ ...t, x: t.x + dx, y: t.y + dy }));
   if (p.bgKey) { p.bgX = (p.bgX || 0) + dx; p.bgY = (p.bgY || 0) + dy; }
   for (const it of E.nb.items) if (it.pageId === p.id) it.box = [it.box[0] + dx, it.box[1] + dy, it.box[2] + dx, it.box[3] + dy];
   p.ocr = null;

@@ -200,6 +200,7 @@ function findMatches(q) {
   const out = [];
   E.pages.forEach((p, pi) => {
     for (const t of p.texts) if (normTxt(t.text).includes(ql)) out.push({ pi, p, box: textBox(p, t), kind: 'Text' });
+    for (const t of p.tables || []) if (t.cells.some(r => r.some(v => normTxt(v).includes(ql)))) out.push({ pi, p, box: tableBox(p, t), kind: 'Table' });
     for (const [words, kind] of [[p.pdfWords || [], 'PDF'], [p.ocr?.words || [], 'Handwriting']]) {
       for (let i = 0; i < words.length; i++) {
         if (!wordMatch(words[i].t, terms[0], terms.length === 1)) continue;
