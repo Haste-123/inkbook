@@ -82,19 +82,26 @@
       <button class="icon-btn" id="bookmarkBtn" title="Bookmark this page" data-icon="bookmark"></button>
       <button class="icon-btn" id="pencilBtn" title="Pencil-only mode: fingers scroll" data-icon="hand"></button>
       <button class="icon-btn" id="addPageBtn" title="Add page" data-icon="addpage"></button>
-      <button class="icon-btn" id="moreBtn" title="More" data-icon="more"></button>
+      <button class="icon-btn" id="moreBtn" data-pop-anchor title="More" data-icon="more"></button>
     </div>
   </header>
   <div class="ed-body">
     <aside id="edSide" class="ed-side" hidden>
+      <div class="side-head">
+        <div><small>Contents</small><b id="sideTitle"></b></div>
+        <button class="icon-btn" id="sideClose" title="Close" data-icon="x"></button>
+      </div>
       <div class="side-tabs">
-        <button data-tab="outline">Outline</button>
-        <button data-tab="saved">Saved</button>
-        <button data-tab="pages">Pages</button>
-        <button data-tab="marks">Bookmarks</button>
+        <button data-tab="outline"><span data-icon="layers"></span>Outline</button>
+        <button data-tab="saved"><span data-icon="star"></span>Saved</button>
+        <button data-tab="pages"><span data-icon="gridv"></span>Pages</button>
+        <button data-tab="marks"><span data-icon="bookmark"></span>Marks</button>
       </div>
       <div id="sideBody" class="side-body"></div>
-      <div class="side-foot"><button class="btn" id="addSecBtn"><span data-icon="plus"></span>Lesson / topic</button></div>
+      <div class="side-foot" id="sideFoot">
+        <button class="btn primary" id="addSecBtn"><span data-icon="plus"></span>New lesson</button>
+        <button class="btn" id="addTopicBtn"><span data-icon="plus"></span>Topic</button>
+      </div>
     </aside>
     <div id="scroller"><div id="pages"></div></div>
     <button id="pageInd" class="page-ind"></button>
@@ -109,6 +116,7 @@
 <input type="color" id="colorPick" class="hidden-input" tabindex="-1">
 <div id="toast" class="toast" hidden></div>
 <script src="app.js"></script>
+<script src="features.js"></script>
 <script src="io.js"></script>
 </body>
 </html>

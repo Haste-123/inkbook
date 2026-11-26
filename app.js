@@ -114,6 +114,7 @@ const DEFAULTS = {
   penStyle: 'fount', shapeSnap: true, hlStraight: false, eraserMode: 'stroke', eraseHlOnly: false, fingerTaps: true,
   shape: 'line', font: 'sans', selMode: 'free', sideOpen: false, sideTab: 'outline',
   paper: 'lined', paperColor: '#ffffff', pageSize: 'a4', sort: 'recent', libLayout: 'grid',
+  uiFont: 'system', desk: 'dots', coverSize: 'm', claudeKey: '',
   pen: ['#1f2430', '#2f5bea', '#e5484d', '#18a058', '#8e4ec6', '#f76b15', '#12a594', '#8d8d86'],
   hl: ['#ffe14d', '#7cf29c', '#7cc8ff', '#ff9ad5', '#ffb86b', '#c3a6ff'],
   sizes: null,
@@ -129,7 +130,7 @@ let S = (() => {
 function saveSettings() { try { localStorage.setItem('inkbook.settings', JSON.stringify(S)); } catch { } applyTheme(); }
 function applyTheme() {
   const r = document.documentElement;
-  r.dataset.theme = S.theme;
+  r.dataset.theme = S.theme; r.dataset.font = S.uiFont; r.dataset.desk = S.desk; r.dataset.cover = S.coverSize;
   r.style.setProperty('--accent', S.accent);
   r.style.setProperty('--accent-soft', S.accent + '29');
   document.title = S.appName; $('#appName').textContent = S.appName;
@@ -275,8 +276,9 @@ function drawImg(ctx, p, im, s, o = {}) {
   }
 }
 function renderPage(ctx, p, s, o = {}) {
-  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-  ctx.fillStyle = p.paperColor || '#fff'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  // o.ox / o.oy shift the view so a cropped region of the page can be drawn (previews, Ask Claude)
+  ctx.setTransform(1, 0, 0, 1, -(o.ox || 0) * s, -(o.oy || 0) * s); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = p.paperColor || '#fff'; ctx.fillRect(0, 0, p.w * s, p.h * s);
   if (p.bgKey) {
     const img = cachedImg(p.bgKey);
     if (img) ctx.drawImage(img, 0, 0, p.w * s, (p.bgH || p.h) * s);
@@ -386,17 +388,6 @@ async function showLibrary() {
   if (LIB.q.trim()) return renderSearch(LIB.q.trim());
   renderLibContent();
 }
-function renderSide() {
-  $$('#libSide [data-view]').forEach(b => b.classList.toggle('on', LIB.view === b.dataset.view));
-  const row = (f, d) => {
-    const kids = childFolders(f.id), open = LIB.open.has(f.id), n = NBS.filter(x => x.folderId === f.id).length;
-    return `<div class="tree-row${LIB.view === 'folder' && LIB.folderId === f.id ? ' on' : ''}" data-tf="${f.id}" style="--d:${d}">
-      <button class="tw${kids.length ? '' : ' none'}" data-tw="${f.id}">${open ? '▾' : '▸'}</button>
-      <span class="fdot" style="--c:${esc(f.color)}"></span><span class="tname">${esc(f.name)}</span><span class="tcount">${n || ''}</span></div>` +
-      (open ? kids.map(k => row(k, d + 1)).join('') : '');
-  };
-  $('#folderTree').innerHTML = childFolders(null).map(f => row(f, 0)).join('') || `<div class="side-empty">Make a folder for each course or subject.</div>`;
-}
 function renderCrumbs() {
   let html;
   if (LIB.q.trim()) html = `<span class="crumb cur">Search</span>`;
@@ -410,22 +401,6 @@ function renderCrumbs() {
 function nbMeta(n) {
   const f = folderById(n.folderId), secs = (n.sections || []).filter(s => (s.level || 1) === 1).length;
   return `${n.pages.length} pg${secs ? ` · ${secs} lesson${secs > 1 ? 's' : ''}` : ''} · ${fmtDate(n.updated)}${f && LIB.view !== 'folder' ? ' · ' + esc(f.name) : ''}`;
-}
-function nbCard(n, list) {
-  const img = n.coverKey ? `<img alt="" data-key="${esc(n.coverKey)}">` : '';
-  if (list) return `<div class="row nb" data-id="${n.id}"><div class="mini-cover" style="--c:${esc(n.color)}" data-open>${img}</div>
-    <div class="row-main" data-open><b>${esc(n.title)}</b><span>${nbMeta(n)}</span></div>
-    <button class="icon-btn star${n.starred ? ' on' : ''}" data-star title="Favorite">${icon('star')}</button><button class="icon-btn" data-menu>${icon('more')}</button></div>`;
-  return `<div class="nb" data-id="${n.id}"><div class="cover" style="--c:${esc(n.color)}" data-open>${img || `<div class="cover-label">${esc(n.title)}</div>`}${n.starred ? `<span class="cover-star">${icon('star')}</span>` : ''}</div>
-    <div class="nb-meta"><div><b>${esc(n.title)}</b><span>${nbMeta(n)}</span></div><button class="icon-btn" data-menu>${icon('more')}</button></div></div>`;
-}
-function folderCard(f, list) {
-  const n = NBS.filter(x => x.folderId === f.id).length, k = childFolders(f.id).length;
-  const meta = [k ? `${k} folder${k > 1 ? 's' : ''}` : '', `${n} notebook${n === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
-  if (list) return `<div class="row" data-fid="${f.id}"><div class="mini-folder" style="--c:${esc(f.color)}" data-openf>${icon('folder')}</div>
-    <div class="row-main" data-openf><b>${esc(f.name)}</b><span>${meta}</span></div><button class="icon-btn" data-fmenu>${icon('more')}</button></div>`;
-  return `<div class="folder" data-fid="${f.id}"><div class="fcover" style="--c:${esc(f.color)}" data-openf><span>${esc(f.name)}</span></div>
-    <div class="nb-meta"><div><b>${esc(f.name)}</b><span>${meta}</span></div><button class="icon-btn" data-fmenu>${icon('more')}</button></div></div>`;
 }
 const newCard = list => list
   ? `<div class="row" data-new><div class="mini-cover dashed">${icon('plus')}</div><div class="row-main"><b>New notebook</b><span>Lined, grid, Cornell and more</span></div></div>`
@@ -562,7 +537,8 @@ async function nbMenu(nb) {
   const v = await menu(nb.title, [
     { label: 'Open', value: 'open' },
     { label: nb.starred ? 'Remove from favorites' : 'Add to favorites', value: 'star' },
-    { label: 'Edit name & cover', value: 'edit' },
+    { label: 'Customize cover…', value: 'cover', hint: 'Color, gradient, pattern, photo or first page' },
+    { label: 'Edit name & folder', value: 'edit' },
     { label: 'Move to folder…', value: 'move' },
     { label: 'Duplicate', value: 'dup' },
     { label: 'Export as PDF', value: 'pdf' },
@@ -572,6 +548,7 @@ async function nbMenu(nb) {
   if (v === 'open') return openNotebook(nb.id);
   if (v === 'star') { nb.starred = !nb.starred; await db.put('notebooks', nb); }
   if (v === 'edit') { const r = await notebookForm(nb); if (r) { Object.assign(nb, { title: r.title, color: r.color, folderId: r.folderId }); await db.put('notebooks', nb); } }
+  if (v === 'cover') await coverEditor(nb);
   if (v === 'move') { const f = await folderPicker('Move to'); if (f !== null) { nb.folderId = f; await db.put('notebooks', nb); toast('Moved'); } }
   if (v === 'dup') await duplicateNotebook(nb);
   if (v === 'pdf') await exportPDF(nb, await orderedPages(nb));
@@ -595,20 +572,6 @@ async function folderMenu(f) {
     await db.del('folders', f.id); if (LIB.folderId === f.id) { LIB.view = f.parentId ? 'folder' : 'home'; LIB.folderId = f.parentId || null; }
   }
   if (v) showLibrary();
-}
-function folderForm(f, parentId = null) {
-  const v = f ? { name: f.name, color: f.color } : { name: '', color: COVER_COLORS[FOLDERS.length % COVER_COLORS.length] };
-  return new Promise(res => {
-    const m = openModal(`<h2>${f ? 'Edit folder' : 'New folder'}</h2>
-      ${!f && parentId ? `<p class="hint">Inside: ${esc(folderPath(parentId).map(x => x.name).join(' › '))}</p>` : ''}
-      <div class="field"><label class="lbl">Name</label><input type="text" name="n" value="${esc(v.name)}" placeholder="e.g. Calculus II, Semester 3, Biology"></div>
-      <div class="field"><label class="lbl">Color</label><div class="seg">${swatchHtml(COVER_COLORS, v.color)}</div></div>
-      <div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" data-ok>${f ? 'Save' : 'Create'}</button></div>`);
-    wireSeg($('.seg', m.el), c => (v.color = c));
-    let out = null; const ok = () => { v.name = $('[name=n]', m.el).value.trim() || 'Untitled folder'; out = v; m.close(); };
-    $('[data-ok]', m.el).onclick = ok; $('[name=n]', m.el).onkeydown = e => { if (e.key === 'Enter') ok(); };
-    m.onClose = () => res(out); $('[name=n]', m.el).focus();
-  });
 }
 async function newFolder(parentId = null) {
   const r = await folderForm(null, parentId); if (!r) return null;
@@ -655,6 +618,7 @@ async function orderedPages(nb) {
 }
 async function deleteNotebook(nb) {
   for (const p of await db.pagesOf(nb.id)) { await db.del('pages', p.id); for (const k of pageBlobKeys(p)) await db.del('blobs', k); }
+  for (const k of [nb.thumbKey, nb.cover?.imgKey]) if (k) await db.del('blobs', k);
   await db.del('notebooks', nb.id);
 }
 async function duplicateNotebook(nb) {
@@ -727,7 +691,9 @@ async function leaveNotebook() {
   if (!E.nb) return;
   clearSelection(); hidePasteMenu(); closePopover(); document.activeElement?.blur?.();
   E.nb.lastPage = currentIndex();
-  await flush(); await saveNb();
+  await flush();
+  try { await makeThumb(E.nb, E.pages); } catch (e) { console.warn(e); }
+  await saveNb();
   io?.disconnect(); sideIO?.disconnect(); pagesEl.innerHTML = ''; E.els.clear(); E.visible.clear(); clearImgCache();
   E.nb = null; showLibrary();
 }
@@ -744,13 +710,18 @@ async function flush() {
 function buildPages() {
   io?.disconnect(); pagesEl.innerHTML = ''; E.els.clear(); E.visible.clear(); live.remove(); hideSelMenu(); hidePasteMenu();
   io = new IntersectionObserver(onIntersect, { root: scroller, rootMargin: '120% 0px' });
-  const starts = new Map();
-  for (const { s, i } of secList()) { if (!starts.has(i)) starts.set(i, []); starts.get(i).push(s); }
+  const starts = new Map(), list = secList(); let lessonNo = 0;
+  for (const e of list) {
+    if ((e.s.level || 1) === 1) lessonNo++;
+    const [a, b] = secRange(e, list), topics = (e.s.level || 1) === 1 ? list.filter(x => x.s.level === 2 && x.i >= a && x.i < b).length : 0;
+    if (!starts.has(e.i)) starts.set(e.i, []);
+    starts.get(e.i).push({ s: e.s, no: lessonNo, meta: `${b - a} page${b - a > 1 ? 's' : ''}${topics ? ` · ${topics} topic${topics > 1 ? 's' : ''}` : ''}` });
+  }
   E.pages.forEach((p, i) => {
-    for (const s of starts.get(i) || []) {
+    for (const { s, no, meta } of starts.get(i) || []) {
       const d = document.createElement('div'); d.className = 'sec-divider lv' + (s.level || 1); d.dataset.sid = s.id;
       d.style.setProperty('--c', s.color || S.accent);
-      d.innerHTML = `<span class="sec-kind">${s.level === 2 ? 'Topic' : 'Lesson'}</span><span class="sec-title">${esc(s.title)}</span>`;
+      d.innerHTML = dividerHtml(s, no, meta);
       pagesEl.appendChild(d);
     }
     const el = document.createElement('div'); el.className = 'page' + (p.bookmark ? ' bookmarked' : ''); el.dataset.id = p.id;
@@ -926,17 +897,44 @@ function updateUndoBtns() { $('#undoBtn').disabled = !E.undo.length; $('#redoBtn
 function updatePencilBtn() { $('#pencilBtn').classList.toggle('on', S.pencilOnly); scroller.classList.toggle('pencil-only', S.pencilOnly); }
 function closePopover() { if (pop) { pop.remove(); pop = null; document.removeEventListener('pointerdown', popOutside, true); } }
 function popOutside(e) { if (pop && !pop.contains(e.target) && !e.target.closest('[data-pop-anchor]') && e.target !== $('#colorPick')) closePopover(); }
-function openPopover(anchor, kind, build) {
+// avoid: a screen rect the popover must not cover (e.g. the selected handwriting)
+function openPopover(anchor, kind, build, avoid) {
   if (pop && pop._anchor === anchor) { closePopover(); return; }
   closePopover();
-  pop = document.createElement('div'); pop.className = 'popover'; pop._anchor = anchor; pop.dataset.kind = kind;
+  pop = document.createElement('div'); pop.className = 'popover pop-' + kind; pop._anchor = anchor; pop.dataset.kind = kind;
   const inner = document.createElement('div'); pop.appendChild(inner); document.body.appendChild(pop);
   build(inner);
-  const r = anchor.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
-  const below = r.bottom + 8 + h < innerHeight - 8;
-  pop.style.top = (below ? r.bottom + 8 : Math.max(8, r.top - h - 8)) + 'px';
-  pop.style.left = clamp(r.left + r.width / 2 - w / 2, 8, innerWidth - w - 8) + 'px';
+  placePopover(anchor, avoid);
   setTimeout(() => document.addEventListener('pointerdown', popOutside, true));
+}
+function placePopover(anchor, avoid) {
+  if (!pop) return;
+  const r = anchor.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight, M = 8, vw = innerWidth, vh = innerHeight;
+  const cx = x => clamp(x, M, vw - w - M), cy = y => clamp(y, M + 50, vh - h - M);
+  const c = [];
+  if (avoid) c.push({ x: avoid.right + 14, y: cy(avoid.top) }, { x: avoid.left - 14 - w, y: cy(avoid.top) },
+    { x: cx(avoid.left + avoid.width / 2 - w / 2), y: avoid.bottom + 14 }, { x: cx(avoid.left + avoid.width / 2 - w / 2), y: avoid.top - 14 - h });
+  c.push({ x: cx(r.left + r.width / 2 - w / 2), y: r.bottom + 8 }, { x: cx(r.left + r.width / 2 - w / 2), y: r.top - h - 8 });
+  const fits = q => q.x >= M && q.y >= M && q.x + w <= vw - M && q.y + h <= vh - M;
+  const hits = q => avoid && !(q.x >= avoid.right || q.x + w <= avoid.left || q.y >= avoid.bottom || q.y + h <= avoid.top);
+  const best = c.find(q => fits(q) && !hits(q)) || c.find(fits) || { x: M, y: M };
+  pop.style.left = best.x + 'px'; pop.style.top = best.y + 'px';
+  // drag the popover by its title if it's ever in the way
+  const t = $('.pop-title', pop);
+  if (t && !t._drag) {
+    t._drag = true; t.classList.add('draggable');
+    t.addEventListener('pointerdown', e => {
+      e.preventDefault(); const sx = e.clientX - pop.offsetLeft, sy = e.clientY - pop.offsetTop;
+      const mv = ev => { pop.style.left = clamp(ev.clientX - sx, 0, vw - 60) + 'px'; pop.style.top = clamp(ev.clientY - sy, 0, vh - 40) + 'px'; };
+      const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); };
+      addEventListener('pointermove', mv); addEventListener('pointerup', up);
+    });
+  }
+}
+function selScreenRect() {
+  const s = E.sel; if (!s) return null;
+  const r = E.els.get(s.page.id).getBoundingClientRect(), b = s.box, u = E.unit;
+  return { left: r.left + b[0] * u, top: r.top + b[1] * u - 60, right: r.left + b[2] * u, bottom: r.top + b[3] * u, width: (b[2] - b[0]) * u, height: (b[3] - b[1]) * u + 60 };
 }
 
 // ---------- Undo ----------
@@ -1364,8 +1362,8 @@ function showSelMenu() {
   hideSelMenu(); if (!E.sel) return;
   const p = E.sel.page, b = E.sel.box, host = E.els.get(p.id); if (!host) return;
   selMenu = floatMenu(host, p, (b[0] + b[2]) / 2, b[1],
-    `<button data-a="style" data-pop-anchor>Style</button><button data-a="cut">Cut</button><button data-a="copy">Copy</button><button data-a="dup">Duplicate</button><button data-a="save">★ Save</button><button data-a="del" class="danger">Delete</button>`,
-    (act, btn) => act === 'style' ? openSelStyle(btn) : selAction(act));
+    `<button data-a="ask" class="ask-btn">✦ Ask Claude</button><button data-a="style" data-pop-anchor>Style</button><button data-a="cut">Cut</button><button data-a="copy">Copy</button><button data-a="dup">Duplicate</button><button data-a="save">★ Save</button><button data-a="del" class="danger">Delete</button>`,
+    (act, btn) => act === 'style' ? openSelStyle(btn) : act === 'ask' ? guard(askClaude)(E.sel.page, E.sel.box) : selAction(act));
 }
 function hidePasteMenu() { pasteMenu?.remove(); pasteMenu = null; }
 function showPasteMenu(p, el, pt) {
@@ -1446,7 +1444,7 @@ function openSelStyle(anchor) {
       restyleSel(st => { if (ch.c) st.c = ch.c; if (ch.wk) st.w = +clamp(st.w * ch.wk, 0.3, 80).toFixed(2); return st; },
         t => { if (ch.c) t.c = ch.c; if (ch.f) t.f = ch.f; if (ch.ds) t.s = clamp(t.s + ch.ds, 8, 160); if (ch.b) t.b = !allB; if (ch.i) t.i = !allI; return t; });
     },
-  }));
+  }), selScreenRect());
 }
 
 // ---------- Text boxes ----------
@@ -1470,7 +1468,7 @@ function makeTextEl(p, t) {
         if (ch.c) t.c = ch.c; if (ch.f) t.f = ch.f; if (ch.ds) t.s = clamp(t.s + ch.ds, 8, 160);
         if (ch.b) t.b = !t.b; if (ch.i) t.i = !t.i; positionText(p, t, d); markDirty(p);
       },
-    }));
+    }), body.getBoundingClientRect());
   });
   body.contentEditable = 'plaintext-only'; if (body.contentEditable !== 'plaintext-only') body.contentEditable = 'true';
   body.textContent = t.text; positionText(p, t, d);
@@ -1633,34 +1631,6 @@ function secRange(entry, list) {
   for (let j = k + 1; j < list.length; j++) if ((list[j].s.level || 1) <= lv && list[j].i > entry.i) { end = list[j].i; break; }
   return [entry.i, end];
 }
-function sectionForm(s, i) {
-  const isNew = !s;
-  const v = s ? { title: s.title, level: s.level || 1, color: s.color } : { title: '', level: 1, color: COVER_COLORS[secList().length % 9], at: 'new' };
-  return new Promise(res => {
-    const m = openModal(`<h2>${isNew ? 'New lesson or topic' : 'Edit'}</h2>
-      <div class="field"><label class="lbl">Title</label><input type="text" name="t" value="${esc(v.title)}" placeholder="e.g. Lecture 3 — Integration by parts"></div>
-      <div class="field"><label class="lbl">Type</label><div class="seg" data-k="level">${segHtml([[1, 'Lesson / chapter'], [2, 'Topic (inside a lesson)']], v.level)}</div></div>
-      <div class="field"><label class="lbl">Color</label><div class="seg" data-k="color">${swatchHtml(COVER_COLORS.slice(0, 9), v.color)}</div></div>
-      ${isNew ? `<div class="field"><label class="lbl">Starts at</label><div class="seg" data-k="at">${segHtml([['new', 'New page after this one'], ['here', `This page (${i + 1})`], ['end', 'New page at the end']], v.at)}</div></div>` : ''}
-      <div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" data-ok>${isNew ? 'Add' : 'Save'}</button></div>`);
-    $$('.seg[data-k]', m.el).forEach(seg => wireSeg(seg, val => (v[seg.dataset.k] = seg.dataset.k === 'level' ? +val : val)));
-    let out = null; const ok = () => { v.title = $('[name=t]', m.el).value.trim() || (v.level === 2 ? 'New topic' : 'New lesson'); out = v; m.close(); };
-    $('[data-ok]', m.el).onclick = ok; $('[name=t]', m.el).onkeydown = e => { if (e.key === 'Enter') ok(); };
-    m.onClose = () => res(out); $('[name=t]', m.el).focus();
-  });
-}
-async function addSectionFlow() {
-  const i = currentIndex(), r = await sectionForm(null, i); if (!r) return;
-  let pid;
-  if (r.at === 'here') pid = E.pages[i].id;
-  else {
-    const at = r.at === 'end' ? E.pages.length : i + 1, cur = E.pages[i];
-    const p = newPage(E.nb, cur && !cur.bgKey ? { template: cur.template, paperColor: cur.paperColor, w: cur.w, h: cur.h } : {});
-    E.pages.splice(at, 0, p); E.byId.set(p.id, p); await db.put('pages', p); pid = p.id;
-  }
-  E.nb.sections.push({ id: uid(), title: r.title, level: r.level, color: r.color, pageId: pid });
-  await saveNb(); buildPages(); scrollToPage(E.pages.findIndex(p => p.id === pid)); updateInd(); renderEdSide();
-}
 async function sectionMenu(s) {
   const list = secList(), e = list.find(x => x.s === s); if (!e) return;
   const [a, b] = secRange(e, list);
@@ -1750,70 +1720,13 @@ function toggleSide(force) {
 }
 function closeSideIfOverlay() { if (innerWidth < 1100 && S.sideOpen) toggleSide(false); }
 function setSideTab(t) { S.sideTab = t; saveSettings(); if (!S.sideOpen) toggleSide(true); else renderEdSide(); }
-async function renderEdSide() {
-  if (!S.sideOpen || !E.nb) return;
-  $$('.side-tabs [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === S.sideTab));
-  const body = $('#sideBody'), cur = currentIndex(); sideIO?.disconnect();
-  if (S.sideTab === 'outline') {
-    const list = secList();
-    const { lesson, topic } = secAt(cur), on = topic || lesson;
-    body.innerHTML = list.length ? list.map(e => {
-      const [a, b] = secRange(e, list), s = e.s;
-      return `<div class="out-row lv${s.level || 1}${s === on ? ' on' : ''}" data-sid="${s.id}" style="--c:${esc(s.color || S.accent)}"><span class="out-bar"></span>
-        <div class="out-main" data-go="${a}"><b>${esc(s.title)}</b><span>${s.level === 2 ? 'Topic' : 'Lesson'} · p. ${a + 1}${b - 1 > a ? '–' + b : ''}</span></div>
-        <button class="icon-btn" data-smenu="${s.id}">${icon('more')}</button></div>`;
-    }).join('') : `<div class="side-hint">Split this notebook into <b>lessons</b> (lectures, chapters) and <b>topics</b> inside them. They show as headings between pages and here, so you can jump around instantly.<br><br>Tap <b>+ Lesson / topic</b> below to start.</div>`;
-  } else if (S.sideTab === 'saved') {
-    const items = await collectItems(E.nb, E.pages);
-    const types = ITEM_TYPES.filter(([k]) => items.some(i => i.type === k));
-    const shown = items.filter(i => savedFilter === 'all' || i.type === savedFilter);
-    body.innerHTML = (types.length > 1 ? `<div class="filter-chips">${segHtml([['all', 'All'], ...types.map(([k, l]) => [k, l])], savedFilter)}</div>` : '') +
-      (shown.length ? shown.map(it => `<div class="saved-row" data-item="${it.pageId}|${it.box.join(',')}"><span class="badge" style="--c:${ITEM_MAP[it.type].color}">${ITEM_MAP[it.type].label}</span>
-        <div class="sr-main"><b>${esc(it.title)}</b><span>p. ${it.pageNo}${it.section ? ' · ' + esc(it.section) : ''}${it.auto ? ' · from text' : ''}</span></div>
-        ${it.auto ? '' : `<button class="icon-btn" data-imenu="${it.id}">${icon('more')}</button>`}</div>`).join('')
-        : `<div class="side-hint">Nothing saved yet.<br><br>• Select something with the <b>lasso</b> → <b>★ Save as…</b> to save a question, problem, definition, formula…<br>• Or start a text box with <b>Q:</b>, <b>Problem 2:</b>, <b>Def:</b>, <b>Formula:</b>, <b>Example:</b>, <b>Note:</b> or <b>!!</b> and it’s picked up automatically. With Apple Pencil you can handwrite inside a text box (Scribble) and iPad converts it to text.</div>`);
-    const fc = $('.filter-chips', body); if (fc) wireSeg(fc, v => { savedFilter = v; renderEdSide(); });
-  } else if (S.sideTab === 'pages') {
-    const starts = new Map(secList().map(e => [e.i, e.s]));
-    let html = '<div class="sthumbs">';
-    E.pages.forEach((p, i) => {
-      const s = starts.get(i);
-      if (s) html += `</div><div class="sgroup" style="color:${esc(s.color || S.accent)}">${esc(s.title)}</div><div class="sthumbs">`;
-      html += `<div class="sthumb${i === cur ? ' cur' : ''}" data-pi="${i}"><canvas width="220" height="${Math.round(220 * p.h / p.w)}"></canvas>
-        <div class="row2"><span>${i + 1}${p.bookmark ? ' 🔖' : ''}</span><button data-pm="${i}">⋯</button></div></div>`;
-    });
-    body.innerHTML = html + '</div>';
-    sideIO = new IntersectionObserver(ents => ents.forEach(en => {
-      if (!en.isIntersecting) return; sideIO.unobserve(en.target);
-      const p = E.pages[+en.target.dataset.pi]; if (p) renderThumb($('canvas', en.target), p);
-    }), { root: body, rootMargin: '200px' });
-    $$('.sthumb', body).forEach(t => sideIO.observe(t));
-  } else {
-    const marks = E.pages.map((p, i) => ({ p, i })).filter(x => x.p.bookmark);
-    body.innerHTML = marks.length ? marks.map(({ i }) => {
-      const { lesson, topic } = secAt(i);
-      return `<div class="saved-row" data-go="${i}"><span class="badge" style="--c:var(--danger)">p. ${i + 1}</span><div class="sr-main"><b>${esc((topic || lesson)?.title || 'Page ' + (i + 1))}</b><span>${lesson && topic ? esc(lesson.title) : ''}</span></div></div>`;
-    }).join('') : `<div class="side-hint">No bookmarks yet. Tap the 🔖 button in the toolbar to bookmark the page you’re on.</div>`;
-  }
-}
 function updateSideCurrent(i) {
-  if (S.sideTab === 'pages') $$('#sideBody .sthumb').forEach(t => t.classList.toggle('cur', +t.dataset.pi === i));
+  if (S.sideTab === 'pages') $$('#sideBody .pg-card').forEach(t => t.classList.toggle('cur', +t.dataset.pi === i));
   else if (S.sideTab === 'outline') renderEdSide();
 }
 function queueThumb(p) {
   if (S.sideTab !== 'pages') return; thumbQ.add(p); clearTimeout(thumbT);
-  thumbT = setTimeout(() => { for (const q of thumbQ) { const c = $(`#sideBody .sthumb[data-pi="${E.pages.indexOf(q)}"] canvas`); if (c) renderThumb(c, q); } thumbQ.clear(); }, 900);
-}
-async function onSideClick(e) {
-  const t = e.target;
-  const tab = t.closest('[data-tab]'); if (tab) return setSideTab(tab.dataset.tab);
-  const sm = t.closest('[data-smenu]'); if (sm) return sectionMenu(E.nb.sections.find(s => s.id === sm.dataset.smenu));
-  const im = t.closest('[data-imenu]'); if (im) return itemMenu(E.nb.items.find(x => x.id === im.dataset.imenu));
-  const pm = t.closest('[data-pm]'); if (pm) return pageMenu(+pm.dataset.pm);
-  const it = t.closest('[data-item]');
-  if (it) { const [pid, box] = it.dataset.item.split('|'); closeSideIfOverlay(); return goToBox(E.byId.get(pid), box.split(',').map(Number)); }
-  const go = t.closest('[data-go]'); if (go) { scrollToPage(+go.dataset.go, true); closeSideIfOverlay(); return; }
-  const th = t.closest('[data-pi]'); if (th) { scrollToPage(+th.dataset.pi); closeSideIfOverlay(); }
+  thumbT = setTimeout(() => { for (const q of thumbQ) { const c = $(`#sideBody .pg-card[data-pi="${E.pages.indexOf(q)}"] canvas`); if (c) renderThumb(c, q); } thumbQ.clear(); }, 900);
 }
 async function itemMenu(it) {
   if (!it) return;
@@ -1895,79 +1808,12 @@ async function applyToPages(title, scopeOpts, fn) {
   list.forEach(p => { fn(p); markDirty(p); });
   return scope;
 }
-async function pickTemplate() {
-  const t = await menu('Page template', TEMPLATES.map(([k, l]) => ({ label: l, value: k }))); if (!t) return;
-  const sc = await applyToPages('Apply to', [{ label: 'This page', value: 'one' }, { label: 'All pages + future new pages', value: 'all' }], p => (p.template = t));
-  if (sc === 'all') { E.nb.paper = t; await saveNb(); }
-  layout();
-}
-async function pickPaperColor() {
-  const c = await menu('Paper color', PAPER_COLORS.map(([k, l]) => ({ label: l, value: k }))); if (!c) return;
-  const sc = await applyToPages('Apply to', [{ label: 'This page', value: 'one' }, { label: 'All pages + future new pages', value: 'all' }], p => { if (!p.bgKey) p.paperColor = c; });
-  if (sc === 'all') { E.nb.paperColor = c; await saveNb(); }
-  layout();
-}
-async function pickPageSize() {
-  const k = await menu('Page size', [...PAGE_SIZES.map(s => ({ label: s[1], value: s[0], hint: `${s[2]} × ${s[3]}` })), { label: 'Make this page 50% longer', value: 'longer' }]); if (!k) return;
-  if (k === 'longer') { const p = E.pages[currentIndex()]; if (p.bgKey && !p.bgH) p.bgH = p.h; p.h = Math.round(p.h * 1.5); markDirty(p); return layout(); }
-  const sz2 = PAGE_SIZES.find(s => s[0] === k);
-  const sc = await applyToPages('Apply to', [{ label: 'This page', value: 'one' }, { label: 'All pages + future new pages', value: 'all' }], p => { if (!p.bgKey) { p.w = sz2[2]; p.h = sz2[3]; } });
-  if (sc === 'all') { E.nb.pw = sz2[2]; E.nb.ph = sz2[3]; await saveNb(); }
-  layout();
-}
 async function exportPagePng(i) {
   const p = E.pages[i]; await preloadPage(p);
   const s = Math.min(2, Math.sqrt(16e6 / (p.w * p.h))), c = document.createElement('canvas'); c.width = Math.round(p.w * s); c.height = Math.round(p.h * s);
   renderPage(c.getContext('2d'), p, s, { texts: true, sync: true });
   const blob = await new Promise(r => c.toBlob(r, 'image/png'));
   readyToShare(blob, `${safeName(E.nb.title)} - page ${i + 1}.png`);
-}
-async function moreMenu() {
-  const i = currentIndex();
-  const v = await menu(null, [
-    { head: 'Organize' },
-    { label: '+ Lesson / topic…', value: 'sec' },
-    { label: 'Saved questions & problems', value: 'saved' },
-    { head: 'Tools' },
-    { label: 'Laser pointer', value: 'laser', hint: 'For presenting — a fading red trail that isn’t saved' },
-    { label: 'Select everything on this page', value: 'selall' },
-    { head: 'Insert' },
-    { label: 'Image from Photos, camera or Files…', value: 'img' },
-    { label: 'Photos as new pages (scan handouts)…', value: 'photos' },
-    { label: 'PDF, slides or Word document…', value: 'doc', hint: 'Added as pages after this one' },
-    ...(E.clip ? [{ label: 'Paste', value: 'paste' }] : []),
-    { head: `Page ${i + 1}` },
-    { label: 'Page template…', value: 'tpl', hint: 'Lined, grid, graph, Cornell, music…' },
-    { label: 'Page size…', value: 'size', hint: 'Or drag the bottom / right edge of a page' },
-    { label: 'Paper color…', value: 'paper' },
-    { label: 'Duplicate page', value: 'dup' },
-    { label: 'Export page as image', value: 'png' },
-    { label: 'Delete page', value: 'del', danger: true },
-    { head: 'Notebook' },
-    { label: 'Export as PDF', value: 'pdf' },
-    { label: 'Export as Word (.docx)', value: 'docx' },
-    { label: 'Rename notebook', value: 'rename' },
-    { head: 'Help' },
-    { label: 'Help & tips for every tool', value: 'help' },
-  ]);
-  if (v === 'help') openHelp();
-  if (v === 'laser') { setTool('laser'); toast('Laser pointer on — tap the pen to go back', 2200); }
-  if (v === 'selall') selectAll();
-  if (v === 'sec') await addSectionFlow();
-  if (v === 'saved') setSideTab('saved');
-  if (v === 'img') await insertImages(await pickFiles('image/*', true));
-  if (v === 'photos') await insertPhotoPages(await pickFiles('image/*', true), i);
-  if (v === 'doc') { const f = await pickFile('.pdf,.docx,application/pdf'); if (f) await insertDocFile(f, i); }
-  if (v === 'paste') { const p = E.pages[i], sr = scroller.getBoundingClientRect(), er = E.els.get(p.id).getBoundingClientRect(); await pasteClip(p, { x: 60, y: clamp((sr.top + 80 - er.top) / E.unit, 20, p.h - 40) }); }
-  if (v === 'tpl') await pickTemplate();
-  if (v === 'size') await pickPageSize();
-  if (v === 'paper') await pickPaperColor();
-  if (v === 'dup') await duplicatePage(i);
-  if (v === 'png') await exportPagePng(i);
-  if (v === 'del') await deletePage(i);
-  if (v === 'pdf') { await flush(); await exportPDF(E.nb, E.pages); }
-  if (v === 'docx') { await flush(); await exportDocx(E.nb, E.pages); }
-  if (v === 'rename') { const t = await promptText('Rename notebook', E.nb.title); if (t) { E.nb.title = t; $('#nbTitle').textContent = t; await saveNb(); } }
 }
 async function insertPagesAt(pages, i) {
   E.pages.splice(i + 1, 0, ...pages); pages.forEach(p => E.byId.set(p.id, p));
@@ -1986,6 +1832,13 @@ function openSettings() {
     <div class="field"><label class="lbl">App name</label><input type="text" id="sName" value="${esc(S.appName)}"></div>
     <div class="field"><label class="lbl">Theme</label><div class="seg" id="sTheme">${segHtml([['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], S.theme)}</div></div>
     <div class="field"><label class="lbl">Accent color</label><div class="seg" id="sAccent">${swatchHtml(ACCENTS, S.accent)}<label class="cswatch custom" title="Custom color"><input type="color" id="sAccentCustom" value="${S.accent}"></label></div></div>
+    <div class="field"><label class="lbl">Interface font</label><div class="seg" id="sFont">${segHtml([['system', 'System'], ['rounded', 'Rounded'], ['serif', 'Serif'], ['mono', 'Typewriter']], S.uiFont)}</div></div>
+    <div class="field"><label class="lbl">Desk behind the pages</label><div class="seg" id="sDesk">${segHtml([['dots', 'Dots'], ['plain', 'Plain'], ['grid', 'Grid'], ['warm', 'Warm wood'], ['night', 'Night']], S.desk)}</div></div>
+    <div class="field"><label class="lbl">Cover size in the library</label><div class="seg" id="sCover">${segHtml([['s', 'Small'], ['m', 'Medium'], ['l', 'Large']], S.coverSize)}</div></div>
+    <div class="field"><label class="lbl">Ask Claude</label>
+      <input type="password" id="sKey" autocomplete="off" spellcheck="false" placeholder="Paste your Claude API key (sk-ant-…)" value="${S.claudeKey ? '••••••••••••' + esc(S.claudeKey.slice(-4)) : ''}">
+      <div class="seg" style="margin-top:8px"><button class="chip" id="sKeyTest">Test key</button><button class="chip" id="sKeyDel">Remove key</button></div>
+      <p class="hint">Lets you select a formula, equation or question and ask Claude about it (needs internet). Create a key at console.anthropic.com → API Keys. Use is billed to your Anthropic account: usually a few cents per question. The key stays on this device and is sent only to Anthropic.</p></div>
     <div class="field"><label class="lbl">New notebooks</label><div class="seg" id="sPaper">${segHtml(TEMPLATES, S.paper)}</div>
       <div class="seg" id="sSize" style="margin-top:8px">${segHtml(PAGE_SIZES.map(s => [s[0], s[1]]), S.pageSize)}</div>
       <div class="seg" id="sPaperColor" style="margin-top:8px">${segHtml(PAPER_COLORS, S.paperColor)}</div></div>
@@ -2008,6 +1861,13 @@ function openSettings() {
   wireSeg($('#sSize', m.el), v => { S.pageSize = v; saveSettings(); });
   wireSeg($('#sPaperColor', m.el), v => { S.paperColor = v; saveSettings(); });
   wireSeg($('#sPen', m.el), v => { S.penStyle = v; saveSettings(); });
+  wireSeg($('#sFont', m.el), v => { S.uiFont = v; saveSettings(); });
+  wireSeg($('#sDesk', m.el), v => { S.desk = v; saveSettings(); });
+  wireSeg($('#sCover', m.el), v => { S.coverSize = v; saveSettings(); });
+  const keyIn = $('#sKey', m.el);
+  keyIn.onchange = () => { const v = keyIn.value.trim(); if (v && !v.startsWith('••')) { S.claudeKey = v; saveSettings(); keyIn.value = '••••••••••••' + v.slice(-4); toast('Key saved on this device'); } };
+  $('#sKeyDel', m.el).onclick = () => { S.claudeKey = ''; saveSettings(); keyIn.value = ''; toast('Key removed'); };
+  $('#sKeyTest', m.el).onclick = guard(async () => { keyIn.onchange(); toast('Testing…', 8000); toast(await testClaudeKey(), 4000); });
   $$('.palette-row', m.el).forEach(row => row.addEventListener('input', e => { S[row.dataset.pal][+e.target.dataset.i] = e.target.value; saveSettings(); }));
   $$('[data-k]', m.el).forEach(c => c.onchange = () => { S[c.dataset.k] = c.checked; if (c.dataset.k === 'pencilOnly') S.pencilSeen = true; saveSettings(); });
   $('#sBackup', m.el).onclick = guard(async () => { m.close(); await exportBackup(); });
@@ -2072,7 +1932,9 @@ async function boot() {
   });
   $('#sideBtn').onclick = () => toggleSide();
   $('#edSide').addEventListener('click', guard(onSideClick));
-  $('#addSecBtn').onclick = guard(addSectionFlow);
+  $('#addSecBtn').onclick = guard(() => addSectionFlow({ level: 1 }));
+  $('#addTopicBtn').onclick = guard(() => addSectionFlow({ level: 2 }));
+  $('#sideClose').onclick = () => toggleSide(false);
   $('#undoBtn').onclick = undo; $('#redoBtn').onclick = redo;
   $$('.tool').forEach(b => b.onclick = () => {
     if (E.tool === b.dataset.tool) openPopover(b, 'tool', box => buildToolOptions(box, true)); else setTool(b.dataset.tool);
