@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Inkbook">
+<meta name="theme-color" content="#f3f3f6">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<title>Inkbook</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<section id="library">
+  <header class="lib-head">
+    <h1 id="appName">Inkbook</h1>
+    <div class="lib-actions">
+      <input id="search" type="search" placeholder="Search notebooks" autocomplete="off">
+      <button class="btn" id="importPdf"><span data-icon="pdf"></span>Import PDF</button>
+      <button class="btn primary" id="newNb"><span data-icon="plus"></span>New</button>
+      <button class="icon-btn" id="settingsBtn" title="Settings" data-icon="settings"></button>
+    </div>
+  </header>
+  <nav id="chips" class="chips"></nav>
+  <main id="grid" class="grid"></main>
+</section>
+
+<section id="editor" hidden>
+  <header class="toolbar">
+    <div class="tb-group">
+      <button class="icon-btn" id="backBtn" title="Library" data-icon="back"></button>
+      <div id="nbTitle" class="nb-title"></div>
+    </div>
+    <div class="tb-group">
+      <button class="icon-btn" id="undoBtn" title="Undo" data-icon="undo"></button>
+      <button class="icon-btn" id="redoBtn" title="Redo" data-icon="redo"></button>
+      <span class="sep"></span>
+      <button class="icon-btn tool" data-tool="pen" title="Pen (P)" data-icon="pen"></button>
+      <button class="icon-btn tool" data-tool="hl" title="Highlighter (H)" data-icon="hl"></button>
+      <button class="icon-btn tool" data-tool="eraser" title="Eraser (E)" data-icon="eraser"></button>
+      <button class="icon-btn tool" data-tool="lasso" title="Lasso select (L)" data-icon="lasso"></button>
+      <button class="icon-btn tool" data-tool="text" title="Text (T)" data-icon="text"></button>
+      <span class="sep"></span>
+      <div id="colors" class="colors"></div>
+      <div id="sizes" class="sizes"></div>
+    </div>
+    <div class="tb-group">
+      <button class="icon-btn" id="pencilBtn" title="Pencil-only mode: fingers scroll" data-icon="hand"></button>
+      <button class="icon-btn" id="addPageBtn" title="Add page" data-icon="addpage"></button>
+      <button class="icon-btn" id="pagesBtn" title="All pages" data-icon="pages"></button>
+      <button class="icon-btn" id="moreBtn" title="More" data-icon="more"></button>
+    </div>
+  </header>
+  <div id="scroller"><div id="pages"></div></div>
+  <div id="pageInd" class="page-ind"></div>
+  <div class="zoom-ctl">
+    <button id="zoomOut" title="Zoom out">−</button>
+    <button id="zoomFit" title="Fit width"><span id="zoomLbl">100%</span></button>
+    <button id="zoomIn" title="Zoom in">+</button>
+  </div>
+</section>
+
+<input type="color" id="colorPick" class="hidden-input" tabindex="-1">
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
