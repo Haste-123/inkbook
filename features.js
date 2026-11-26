@@ -620,7 +620,9 @@ async function askClaude(p, box) {
   };
   $('[data-app]', m.el).onclick = () => {
     const q = input.value.trim() || ASK_PRESETS[0][0];
-    const text = `${q}\n\n(The picture is part of my study notes. Please write math in plain symbols like x², √, π and finish with a line starting "Answer:".)`;
+    const text = `📓 From Inkbook (my handwritten study notes app)${E.nb ? ` · ${E.nb.title}` : ''}${secAt(E.pages.indexOf(p)).lesson ? ` · ${secAt(E.pages.indexOf(p)).lesson.title}` : ''}\n\n${q}\n\n` +
+      `The picture is a part of my notes I selected (handwriting, formulas or slides). If any handwriting is unclear, tell me how you read it. ` +
+      `Write math in plain symbols like x², √, π (no LaTeX) so I can paste your answer back into my notes, and finish with a line starting "Answer:".`;
     if (navigator.canShare?.({ files: [shotFile] })) {
       navigator.share({ files: [shotFile], text }).catch(() => { });     // must run straight from the tap
       toast('Choose “Claude” in the share sheet. If it’s not there, tap “More” to add it.', 5000);
