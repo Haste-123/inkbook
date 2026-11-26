@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '10';
+const APP_VERSION = '11';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -1096,32 +1096,40 @@ function shapePts(kind, x0, y0, x1, y1) {
 function recognize(q) {
   const n = q.length / 3; if (n < 4) return null;
   let L = 0; for (let i = 3; i < q.length; i += 3) L += Math.hypot(q[i] - q[i - 3], q[i + 1] - q[i - 2]);
-  if (L < 30) return null;
+  if (L < 40) return null;
   const x0 = q[0], y0 = q[1], xe = q[q.length - 3], ye = q[q.length - 2], dEnd = Math.hypot(xe - x0, ye - y0);
-  // Straight line: every point stays close to the start→end chord (tolerant of hand wobble and the
-  // little jiggle when you stop and hold)
-  if (dEnd > 30) {
+  // Straight line: nearly as long as the distance between its ends, and every point close to that chord.
+  // (Strict on purpose: only snaps when you clearly meant a line.)
+  if (dEnd > 40) {
     let maxDev = 0, sumDev = 0;
     for (let i = 0; i < q.length; i += 3) {
       const dev = Math.abs((xe - x0) * (y0 - q[i + 1]) - (x0 - q[i]) * (ye - y0)) / dEnd;
       maxDev = Math.max(maxDev, dev); sumDev += dev;
     }
-    if (maxDev < Math.max(10, dEnd * 0.09) && sumDev / n < Math.max(4, dEnd * 0.035)) return { kind: 'line', x0, y0, x1: xe, y1: ye };
+    if (L / dEnd < 1.12 && maxDev < Math.max(6, dEnd * 0.05) && sumDev / n < Math.max(2.5, dEnd * 0.02)) return { kind: 'line', x0, y0, x1: xe, y1: ye };
   }
-  if (dEnd > L * 0.25) return null;
+  // Closed shapes must end close to where they started
+  if (dEnd > L * 0.15) return null;
   let bx0 = 1e9, by0 = 1e9, bx1 = -1e9, by1 = -1e9;
   for (let i = 0; i < q.length; i += 3) { bx0 = Math.min(bx0, q[i]); bx1 = Math.max(bx1, q[i]); by0 = Math.min(by0, q[i + 1]); by1 = Math.max(by1, q[i + 1]); }
-  const w = bx1 - bx0, h = by1 - by0; if (w < 20 || h < 20) return null;
-  const cx = (bx0 + bx1) / 2, cy = (by0 + by1) / 2, rx = w / 2, ry = h / 2;
-  let eErr = 0, rErr = 0;
+  const w = bx1 - bx0, h = by1 - by0; if (w < 30 || h < 30) return null;
+  const cx = (bx0 + bx1) / 2, cy = (by0 + by1) / 2, rx = w / 2, ry = h / 2, m = Math.min(w, h);
+  let eErr = 0, eMax = 0, rErr = 0, rMax = 0;
+  const corners = [[bx0, by0], [bx1, by0], [bx1, by1], [bx0, by1]].map(() => Infinity);
   for (let i = 0; i < q.length; i += 3) {
     const x = q[i], y = q[i + 1];
-    eErr += Math.abs(Math.hypot((x - cx) / rx, (y - cy) / ry) - 1);
-    rErr += Math.min(Math.abs(x - bx0), Math.abs(x - bx1), Math.abs(y - by0), Math.abs(y - by1)) / Math.min(rx, ry);
+    const e = Math.abs(Math.hypot((x - cx) / rx, (y - cy) / ry) - 1); eErr += e; eMax = Math.max(eMax, e);
+    const r = Math.min(Math.abs(x - bx0), Math.abs(x - bx1), Math.abs(y - by0), Math.abs(y - by1)) / m; rErr += r; rMax = Math.max(rMax, r);
+    [[bx0, by0], [bx1, by0], [bx1, by1], [bx0, by1]].forEach(([kx, ky], k) => { corners[k] = Math.min(corners[k], Math.hypot(x - kx, y - ky)); });
   }
   eErr /= n; rErr /= n;
-  if (Math.min(eErr, rErr) > 0.3) return null;
-  return { kind: rErr < eErr ? 'rect' : 'ellipse', x0: bx0, y0: by0, x1: bx1, y1: by1 };
+  // the drawn path must also be about as long as the shape's outline: a scribble is much longer
+  const ellP = Math.PI * (3 * (rx + ry) - Math.sqrt((3 * rx + ry) * (rx + 3 * ry))), rectP = 2 * (w + h);
+  const isEllipse = eErr < 0.08 && eMax < 0.22 && L / ellP > 0.85 && L / ellP < 1.25;
+  const isRect = rErr < 0.05 && rMax < 0.16 && corners.every(d => d < m * 0.2) && L / rectP > 0.85 && L / rectP < 1.2;
+  if (isRect && (!isEllipse || rErr < eErr)) return { kind: 'rect', x0: bx0, y0: by0, x1: bx1, y1: by1 };
+  if (isEllipse) return { kind: 'ellipse', x0: bx0, y0: by0, x1: bx1, y1: by1 };
+  return null;
 }
 
 // ---------- Pointer input (Pencil / finger / mouse) ----------
@@ -1163,7 +1171,7 @@ function onFingerUp(e) {
   if (hit) { if (E.tool !== 'lasso') setTool('lasso'); setSelection(f.page, hit.strokes, hit.images, hit.texts); }
   else if (E.sel) clearSelection();
 }
-function armHold(a) { clearTimeout(a.holdT); a.holdT = setTimeout(() => trySnap(a), 520); }
+function armHold(a) { clearTimeout(a.holdT); a.holdT = setTimeout(() => trySnap(a), 750); }
 function trySnap(a) {
   if (active !== a || a.mode !== 'ink') return;
   const r = recognize(a.stroke.p); if (!r) return;
@@ -1216,7 +1224,8 @@ function onDown(e) {
   scheduleLive();
 }
 function onMove(e) {
-  if (e.pointerType === 'pen') lastPenAt = performance.now();
+  // only a Pencil that is touching the screen counts (newer iPads also report the Pencil hovering above it)
+  if (e.pointerType === 'pen' && (e.buttons || e.pressure > 0)) lastPenAt = performance.now();
   const a = active; if (!a || e.pointerId !== a.id) return;
   const ce = e.getCoalescedEvents?.(); const list = ce && ce.length ? ce : [e];
   const pt = toPt(a, e);
@@ -1624,11 +1633,10 @@ function createText(p, el, pt) {
 // ---------- Touch gestures: palm rejection, pinch zoom, 2/3-finger taps ----------
 // ---- palm rejection for gestures ----
 // While (or just after) the Pencil is writing, finger/palm touches can't zoom, scroll or undo.
-// A touch with a big contact area, or 3+ touches that aren't a quick tap, is treated as a resting hand.
+// 3+ touches that stay on the page (not a quick 3-finger tap) are treated as a resting hand.
 let lastPenAt = 0, palmBlock = false;
 const notePen = () => { lastPenAt = performance.now(); };
-const penRecent = () => performance.now() - lastPenAt < 600;
-const isPalmTouch = t => (t.radiusX || 0) > 28 || (t.radiusY || 0) > 28;
+const penRecent = () => performance.now() - lastPenAt < 500;
 function onTouch(e) {
   if (!E.nb) return;
   if ([...e.changedTouches].some(t => t.touchType === 'stylus')) {
@@ -1640,7 +1648,7 @@ function onTouch(e) {
   if (active?.type === 'touch' && (active.mode === 'move' || active.mode === 'scale') && e.touches.length === 1) { if (e.cancelable) e.preventDefault(); return; }
   const f = [...e.touches].filter(t => t.touchType !== 'stylus');
   // a hand resting on the page: no zooming, no scrolling, no 2/3-finger taps until it lifts
-  if (penRecent() || f.some(isPalmTouch) || (f.length >= 3 && tapG && Date.now() - tapG.t > 350)) palmBlock = true;
+  if ((e.type === 'touchstart' && penRecent()) || (f.length >= 3 && tapG && Date.now() - tapG.t > 350)) palmBlock = true;
   if (palmBlock) {
     if (e.cancelable && (penRecent() || f.length >= 2)) e.preventDefault();
     if (pinch) cancelPinch();

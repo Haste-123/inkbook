@@ -557,7 +557,7 @@ const ANTHROPIC_SDK = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.8.0/+esm
 const ASK_SYSTEM = `You are a study helper inside a student's handwritten notes app. The image is a region the student selected from their notes. It may contain handwriting, typed text, diagrams, formulas, worked problems or lecture slides.
 Read it carefully first. If any handwriting is ambiguous, briefly say how you read it.
 Then do what the student asks, accurately and directly. When solving, show the key steps, then finish with one line that starts with "Answer:".
-The app cannot render LaTeX or Markdown tables, so write math in plain Unicode (x², √, ∫, π, ≤, ≥, →, Δ, θ, ½) and keep formatting simple: short paragraphs, "-" bullet points, and **bold** only for key results.`;
+Write every mathematical expression in LaTeX between dollar signs, inline as $\\frac{dy}{dx} = 2x$ or on its own line as $$x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$$, because the app typesets it. Keep the layout simple: short paragraphs, "## " headings, numbered steps, "-" bullet points, and **bold** only for key results. No tables.`;
 const ASK_PRESETS = [['Solve this and show the steps', 'Solve'], ['Find the value of each variable', 'Find the variables'], ['Explain this simply, step by step', 'Explain'],
   ['Check my working and point out any mistakes', 'Check my work'], ['Summarize this in a few bullet points', 'Summarize'], ['Write 3 practice questions like this, with answers', 'Practice questions']];
 let anthropicMod = null;
@@ -682,12 +682,13 @@ async function askClaude(p, box) {
     <div class="ask-thread"></div>`, 'wide ask');
   const thread = $('.ask-thread', m.el), input = $('.ask-input input', m.el), history = []; let busy = false;
   let lastQ = '';
-  const insertAnswer = txt => { if (insertAnswerNotes(p, box, txt, lastQ || input.value)) m.close(); };
+  const insertAnswer = async txt => { if (await answerPreview(p, box, txt, lastQ || input.value)) m.close(); };
   $('[data-app]', m.el).onclick = () => {
     const q = input.value.trim() || ASK_PRESETS[0][0]; lastQ = q;
     const text = `📓 From Inkbook (my handwritten study notes app)${E.nb ? ` · ${E.nb.title}` : ''}${secAt(E.pages.indexOf(p)).lesson ? ` · ${secAt(E.pages.indexOf(p)).lesson.title}` : ''}\n\n${q}\n\n` +
       `The picture is a part of my notes I selected (handwriting, formulas or slides). If any handwriting is unclear, tell me how you read it. ` +
-      `Write math in plain symbols like x², √, π (no LaTeX) so I can paste your answer back into my notes, and finish with a line starting "Answer:".`;
+      `Write all math in LaTeX between $ signs (e.g. $\\frac{x}{2}$, $$\\int_0^1 x^2\\,dx$$) because my notes app typesets it when I paste your answer back. ` +
+      `Use short "## " headings, numbered steps and "-" bullets, and finish with a line starting "Answer:".`;
     if (navigator.canShare?.({ files: [shotFile] })) {
       navigator.share({ files: [shotFile], text }).catch(() => { });     // must run straight from the tap
       toast('Choose “Claude” in the share sheet. If it’s not there, tap “More” to add it.', 5000);
@@ -736,6 +737,7 @@ async function askClaude(p, box) {
         history.push({ role: 'assistant', content: msg.content });
         if (msg.stop_reason === 'max_tokens') text += '\n\n(The answer was cut off because it was very long.)';
         out.innerHTML = mdLite(text);
+        loadKatex().then(() => { out.innerHTML = `<div class="answer-sheet in-bubble">${mdToHtml(text)}</div>`; }).catch(() => { });
         const acts = document.createElement('div'); acts.className = 'bubble-acts';
         acts.innerHTML = `<button class="chip" data-ins>Insert on page</button><button class="chip" data-copy>Copy</button>`;
         out.after(acts);

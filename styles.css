@@ -706,6 +706,25 @@ input:focus, select.select:focus { border-color: var(--accent); }
 }
 @media (max-width: 760px) { #redoBtn { display: none; } .tb-pill .icon-btn, .tb-group > .icon-btn { width: 36px; height: 36px; } }
 
+/* =================== v11: typeset answers =================== */
+.answer-sheet { font-size: 19px; line-height: 1.55; -webkit-user-select: text; user-select: text; }
+.answer-sheet.hand { font-family: "Noteworthy", "Bradley Hand", "Segoe Print", "Comic Sans MS", cursive; font-size: 20px; }
+.answer-sheet.clean { font-family: -apple-system, system-ui, "Segoe UI", sans-serif; }
+.answer-sheet.render { position: absolute; left: -12000px; top: 0; padding: 10px 14px 14px; box-sizing: border-box; background: transparent; }
+.answer-sheet .ans-head { font-family: -apple-system, system-ui, sans-serif; font-size: 13px; font-weight: 700; color: #c15f3c; letter-spacing: .02em; margin-bottom: 6px; }
+.answer-sheet h4 { font-size: 1.12em; margin: 12px 0 4px; font-weight: 700; }
+.answer-sheet p { margin: 6px 0; }
+.answer-sheet ul, .answer-sheet ol { margin: 6px 0; padding-left: 1.4em; }
+.answer-sheet li { margin: 3px 0; }
+.answer-sheet .disp { margin: 8px 0; text-align: center; overflow-x: auto; }
+.answer-sheet .ans { margin-top: 12px; padding: 6px 12px; border-left: 4px solid #13844a; border-radius: 4px; background: rgba(19, 132, 74, .08); color: #13844a; font-weight: 700; }
+.answer-sheet code { font-family: ui-monospace, Menlo, monospace; font-size: .9em; background: rgba(0,0,0,.06); padding: 1px 5px; border-radius: 5px; }
+.answer-sheet .katex { font-size: 1.08em; }
+.ans-preview { background: #fff; border-radius: 14px; border: 1px solid var(--border); padding: 14px 18px; max-height: 42dvh; overflow: auto; color: #1f2430;
+  background-image: repeating-linear-gradient(transparent 0 29px, rgba(60,80,140,.12) 29px 30px); }
+.answer-sheet.in-bubble { font-size: 15px; }
+.answer-sheet.in-bubble .ans-head { display: none; }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 1299px) { .opts-inline .swatches .swatch:nth-child(n+6) { display: none; } }
 @media (max-width: 1099px) {
