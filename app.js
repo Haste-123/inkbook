@@ -15,8 +15,8 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '9';
-const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 9e6;
+const APP_VERSION = '10';
+const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
 let swReg = null;
@@ -243,7 +243,7 @@ function drawStroke(ctx, st, s, dark) {
     ctx.stroke();
   } else if (n === 1) {
     ctx.beginPath(); ctx.arc(q[0] * s, q[1] * s, Math.max(0.5, widthAt(st, q[2]) * s / 2), 0, Math.PI * 2); ctx.fill();
-  } else for (let i = 1; i < n; i++) penSeg(ctx, st, s, i, n);
+  } else for (let i = 1; i < n; i++) penSeg(ctx, st, s, i, n);   // measured: faster than joining pieces into one path
   ctx.restore();
 }
 const LINED = { lined: [40, 130], narrow: [30, 120], wide: [52, 140] };
@@ -337,9 +337,15 @@ function renderPage(ctx, p, s, o = {}) {
     else if (!o.sync) loadImg(p.bgKey).then(() => { if (E.visible.has(p.id)) schedulePaint(p); });
   }
   drawTemplate(ctx, p, s);
-  for (const im of p.images) if (!o.skipImg?.has(im)) drawImg(ctx, p, im, s, o);
+  // skip anything outside the area being drawn (big speed-up on full pages)
+  const v = o.view, off = (a0, b0, a1, b1) => v && (a1 < v[0] || a0 > v[2] || b1 < v[1] || b0 > v[3]);
+  for (const im of p.images) if (!o.skipImg?.has(im) && !off(im.x, im.y, im.x + im.w, im.y + im.h)) drawImg(ctx, p, im, s, o);
   const dark = isDark(p.paperColor);
-  for (const st of p.strokes) if (!o.skip?.has(st)) drawStroke(ctx, st, s, dark);
+  for (const st of p.strokes) {
+    if (o.skip?.has(st)) continue;
+    if (v) { const b = bbox(st), m = st.w; if (off(b[0] - m, b[1] - m, b[2] + m, b[3] + m)) continue; }
+    drawStroke(ctx, st, s, dark);
+  }
   if (o.texts) drawTexts(ctx, p, s);
 }
 async function renderThumb(canvas, p) {
@@ -751,7 +757,7 @@ async function flush() {
 
 function buildPages() {
   io?.disconnect(); pagesEl.innerHTML = ''; E.els.clear(); E.visible.clear(); live.remove(); hideSelMenu(); hidePasteMenu();
-  io = new IntersectionObserver(onIntersect, { root: scroller, rootMargin: '120% 0px' });
+  io = new IntersectionObserver(onIntersect, { root: scroller, rootMargin: '60% 0px' });
   const starts = new Map(), list = secList(); let lessonNo = 0;
   for (const e of list) {
     if ((e.s.level || 1) === 1) lessonNo++;
@@ -790,19 +796,45 @@ function layout(again = true) {
   for (const id of E.visible) paint(E.byId.get(id));
   if (E.sel) { showSelMenu(); scheduleLive(); }
 }
+// Each page's canvas covers only the part of the page that is on screen (plus a margin), at the full
+// screen resolution. Zooming in stays crisp, memory stays low, and redraws only touch visible ink.
+const REG_MARGIN = 0.3;
+function pageRegion(el, margin = REG_MARGIN) {
+  const sr = scroller.getBoundingClientRect(), r = el.getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  const mx = sr.width * margin, my = sr.height * margin;
+  const x0 = clamp(sr.left - mx - r.left, 0, r.width), x1 = clamp(sr.right + mx - r.left, 0, r.width);
+  const y0 = clamp(sr.top - my - r.top, 0, r.height), y1 = clamp(sr.bottom + my - r.top, 0, r.height);
+  if (x1 - x0 < 1 || y1 - y0 < 1) return null;
+  return { x0: Math.floor(x0), y0: Math.floor(y0), x1: Math.ceil(x1), y1: Math.ceil(y1) };
+}
 function paint(p) {
   const el = E.els.get(p?.id); if (!el) return;
   const c = el.querySelector('canvas.ink');
-  const cw = p.w * E.unit, ch = p.h * E.unit;
-  let r = Math.min(devicePixelRatio || 1, 2);
+  const g = pageRegion(el);
+  if (!g) { c.width = c.height = 0; el._reg = null; return; }
+  const cw = g.x1 - g.x0, ch = g.y1 - g.y0;
+  let r = Math.min(devicePixelRatio || 1, 3);
   if (cw * ch * r * r > MAX_PX) r = Math.sqrt(MAX_PX / (cw * ch));
-  const W = Math.round(cw * r), H = Math.round(ch * r);
+  const W = Math.max(1, Math.round(cw * r)), H = Math.max(1, Math.round(ch * r));
   if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-  c.style.width = cw + 'px'; c.style.height = ch + 'px';
-  el._scale = W / p.w;
+  c.style.left = g.x0 + 'px'; c.style.top = g.y0 + 'px'; c.style.width = cw + 'px'; c.style.height = ch + 'px';
+  el._scale = (W / cw) * E.unit;                     // canvas pixels per page unit
+  el._ox = g.x0 / E.unit; el._oy = g.y0 / E.unit; el._reg = g;
   const sel = E.moving && E.sel?.page === p ? E.sel : null;
-  renderPage(c.getContext('2d'), p, el._scale, { skip: sel?.strokes, skipImg: sel?.images });
+  renderPage(c.getContext('2d'), p, el._scale, { skip: sel?.strokes, skipImg: sel?.images, ox: el._ox, oy: el._oy, view: [el._ox, el._oy, el._ox + cw / E.unit, el._oy + ch / E.unit] });
+  if (live.parentNode === el) scheduleLive();
 }
+// When scrolling brings an unpainted part of a page into view, repaint that page
+function checkRegions() {
+  for (const id of E.visible) {
+    const el = E.els.get(id), g = el && pageRegion(el, 0.04), have = el?._reg;
+    if (!g) continue;
+    if (!have || g.x0 < have.x0 || g.y0 < have.y0 || g.x1 > have.x1 || g.y1 > have.y1) schedulePaint(E.byId.get(id));
+  }
+}
+// Sets a canvas context to draw in page units for the painted region of a page
+function setPageTransform(ctx, el) { const s = el._scale || 1; ctx.setTransform(1, 0, 0, 1, -(el._ox || 0) * s, -(el._oy || 0) * s); }
 const paintQ = new Set(); let paintRaf = 0;
 function schedulePaint(p) {
   paintQ.add(p);
@@ -1142,7 +1174,7 @@ function trySnap(a) {
 function onDown(e) {
   if (!E.nb || pinch) return;
   if (e.target.closest('.text-item, .float-menu, .grow, .page-tabs, .hit')) return;
-  if (e.pointerType === 'pen') notePencil();
+  if (e.pointerType === 'pen') { notePencil(); notePen(); }
   const pageEl = e.target.closest('.page');
   if (!pageEl) { if (E.tool === 'lasso') clearSelection(); hidePasteMenu(); return; }
   if (active) return;
@@ -1184,6 +1216,7 @@ function onDown(e) {
   scheduleLive();
 }
 function onMove(e) {
+  if (e.pointerType === 'pen') lastPenAt = performance.now();
   const a = active; if (!a || e.pointerId !== a.id) return;
   const ce = e.getCoalescedEvents?.(); const list = ce && ce.length ? ce : [e];
   const pt = toPt(a, e);
@@ -1222,7 +1255,7 @@ function onUp(e) {
     if (a.stroke.p.length && !tiny) {
       const before = snap(p); p.strokes.push(a.stroke); pushUndo(p, before);
       const c = a.pageEl.querySelector('canvas.ink');
-      if (c.width) drawStroke(c.getContext('2d'), a.stroke, a.pageEl._scale, isDark(p.paperColor));
+      if (c.width) { const cx = c.getContext('2d'); setPageTransform(cx, a.pageEl); drawStroke(cx, a.stroke, a.pageEl._scale, isDark(p.paperColor)); }
     }
   }
   else if (a.mode === 'erase' && a.changed) pushUndo(p, a.before);
@@ -1275,11 +1308,13 @@ function drawLive() {
   let fresh = false;
   if (live.parentNode !== host) { host.appendChild(live); fresh = true; }
   if (live.width !== c.width || live.height !== c.height) { live.width = c.width; live.height = c.height; fresh = true; }
-  live.style.width = c.style.width; live.style.height = c.style.height;
+  if (live._ox !== host._ox || live._oy !== host._oy) { live._ox = host._ox; live._oy = host._oy; fresh = true; }
+  live.style.left = c.style.left; live.style.top = c.style.top; live.style.width = c.style.width; live.style.height = c.style.height;
   const ctx = lctx, s = host._scale || 1, page = E.byId.get(host.dataset.id), dark = isDark(page.paperColor);
   // Fast path: pen ink is drawn incrementally (only new segments) for minimum latency
   if (a?.mode === 'ink' && a.stroke.t === 'pen' && !a.stroke.poly && !laser.pts.length) {
     if (a.fresh || fresh) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, live.width, live.height); a.drawn = 0; a.fresh = false; }
+    setPageTransform(ctx, host);
     const n = a.stroke.p.length / 3;
     ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = a.stroke.c;
     let i = a.drawn + 1; for (; i <= n - 2; i++) penSeg(ctx, a.stroke, s, i, n);
@@ -1287,6 +1322,7 @@ function drawLive() {
     return;
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, live.width, live.height);
+  setPageTransform(ctx, host);
   if (a && (a.mode === 'ink' || a.mode === 'shape' || a.mode === 'snapped')) drawStroke(ctx, a.stroke, s, dark);
   if (a?.mode === 'erase') {
     ctx.beginPath(); ctx.arc(a.last.x * s, a.last.y * s, sz('eraser') / 2 * s, 0, Math.PI * 2);
@@ -1315,7 +1351,7 @@ function drawSelection(ctx, a, s, dark, page) {
   ctx.save();
   ctx.fillStyle = S.accent + '0d'; ctx.fillRect(x0, y0, w, h);
   ctx.setLineDash([6, 5]); ctx.strokeStyle = S.accent; ctx.lineWidth = 1.6; ctx.strokeRect(x0, y0, w, h); ctx.setLineDash([]);
-  const hr = 9 * (live.width / (page.w * E.unit));
+  const hr = 9 * (s / E.unit);
   ctx.beginPath(); ctx.arc(x0 + w, y0 + h, hr, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 2.5; ctx.stroke();
   ctx.restore();
 }
@@ -1586,15 +1622,31 @@ function createText(p, el, pt) {
 }
 
 // ---------- Touch gestures: palm rejection, pinch zoom, 2/3-finger taps ----------
+// ---- palm rejection for gestures ----
+// While (or just after) the Pencil is writing, finger/palm touches can't zoom, scroll or undo.
+// A touch with a big contact area, or 3+ touches that aren't a quick tap, is treated as a resting hand.
+let lastPenAt = 0, palmBlock = false;
+const notePen = () => { lastPenAt = performance.now(); };
+const penRecent = () => performance.now() - lastPenAt < 600;
+const isPalmTouch = t => (t.radiusX || 0) > 28 || (t.radiusY || 0) > 28;
 function onTouch(e) {
   if (!E.nb) return;
   if ([...e.changedTouches].some(t => t.touchType === 'stylus')) {
+    notePen();
     if (!e.target.closest('.text-item, .float-menu') && e.cancelable) e.preventDefault();
     return;
   }
   // a finger dragging a selection must not scroll the page
   if (active?.type === 'touch' && (active.mode === 'move' || active.mode === 'scale') && e.touches.length === 1) { if (e.cancelable) e.preventDefault(); return; }
   const f = [...e.touches].filter(t => t.touchType !== 'stylus');
+  // a hand resting on the page: no zooming, no scrolling, no 2/3-finger taps until it lifts
+  if (penRecent() || f.some(isPalmTouch) || (f.length >= 3 && tapG && Date.now() - tapG.t > 350)) palmBlock = true;
+  if (palmBlock) {
+    if (e.cancelable && (penRecent() || f.length >= 2)) e.preventDefault();
+    if (pinch) cancelPinch();
+    if (tapG) tapG.moved = true;
+    return;
+  }
   if (e.type === 'touchstart') {
     tapG ||= { t: Date.now(), max: 0, start: new Map(), moved: false };
     for (const t of e.changedTouches) tapG.start.set(t.identifier, [t.clientX, t.clientY]);
@@ -1606,11 +1658,15 @@ function onTouch(e) {
     if (e.target.closest('.grow')) return;
     if (e.cancelable) e.preventDefault();
     if (active && active.type === 'touch') cancelActive();
-    pinchMove(f[0], f[1], e.cancelable);
+    // always follow the same two fingers, even if other touches come and go
+    const a = pinch ? f.find(t => t.identifier === pinch.ida) : f[0], b = pinch ? f.find(t => t.identifier === pinch.idb) : f[1];
+    if (a && b) pinchMove(a, b, e.cancelable);
   }
 }
 function onTouchEnd(e) {
-  if (pinch && [...e.touches].filter(t => t.touchType !== 'stylus').length < 2) endPinch();
+  const left = [...e.touches].filter(t => t.touchType !== 'stylus');
+  if (palmBlock && !left.length) { palmBlock = false; tapG = null; return; }
+  if (pinch && (left.length < 2 || !left.some(t => t.identifier === pinch.ida) || !left.some(t => t.identifier === pinch.idb))) endPinch();
   if (tapG && e.touches.length === 0) {
     const g = tapG; tapG = null;
     if (S.fingerTaps && !g.moved && Date.now() - g.t < 350) {
@@ -1622,22 +1678,32 @@ function pinchMove(a, b, manualPan) {
   const mx = (a.clientX + b.clientX) / 2, my = (a.clientY + b.clientY) / 2, d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
   if (!pinch) {
     const r = pagesEl.getBoundingClientRect();
-    pinch = { d0: d, lx: mx, ly: my, ox: mx - r.left, oy: my - r.top, ratio: 1 };
+    pinch = { d0: d, sx: mx, sy: my, lx: mx, ly: my, ox: mx - r.left, oy: my - r.top, ratio: 1, live: false, ida: a.identifier, idb: b.identifier };
     pagesEl.style.transformOrigin = `${pinch.ox}px ${pinch.oy}px`; return;
+  }
+  // small wobbles (like fingers resting) don't zoom or scroll: the gesture has to really move first
+  if (!pinch.live) {
+    if (Math.abs(d - pinch.d0) < 22 && Math.hypot(mx - pinch.sx, my - pinch.sy) < 22) return;
+    pinch.live = true; pinch.d0 = d; pinch.lx = mx; pinch.ly = my;
   }
   if (manualPan) { scroller.scrollLeft -= mx - pinch.lx; scroller.scrollTop -= my - pinch.ly; }
   pinch.lx = mx; pinch.ly = my;
   pinch.ratio = clamp(E.zoom * d / pinch.d0, ZMIN, ZMAX) / E.zoom;
   pagesEl.style.transform = `scale(${pinch.ratio})`;
 }
+function cancelPinch() { pinch = null; pagesEl.style.transform = ''; }
 function endPinch() {
   const p = pinch; pinch = null; const r = p.ratio;
-  const a = anchorAt(p.lx, p.ly);            // measured while the pinch preview is still on screen
   pagesEl.style.transform = '';
-  if (Math.abs(r - 1) < 0.01) return;
+  if (!p.live || Math.abs(r - 1) < 0.01) return;
   if (tapG) tapG.moved = true;
+  // The point that stayed still during the pinch preview is the transform origin, so keep exactly that
+  // page point where it was. (Using the fingers' final position could land in empty space after a big
+  // zoom-out and jump to the last page.)
+  const pr = pagesEl.getBoundingClientRect(), sx = pr.left + p.ox, sy = pr.top + p.oy;
+  const a = anchorAt(sx, sy);
   E.zoom = clamp(E.zoom * r, ZMIN, ZMAX); layout(); updateZoomLabel();
-  restoreAnchor(a, p.lx, p.ly);
+  restoreAnchor(a, sx, sy);
 }
 
 // ---------- Page resizing (drag edges like Paint) ----------
@@ -2039,7 +2105,7 @@ async function boot() {
   scroller.addEventListener('touchcancel', onTouchEnd);
   scroller.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); zoomAt(E.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY); } }, { passive: false });
   let indQ = false;
-  scroller.addEventListener('scroll', () => { if (!indQ) { indQ = true; requestAnimationFrame(() => { indQ = false; updateInd(); placeFloats(); }); } }, { passive: true });
+  scroller.addEventListener('scroll', () => { if (!indQ) { indQ = true; requestAnimationFrame(() => { indQ = false; updateInd(); placeFloats(); if (!pinch) checkRegions(); }); } }, { passive: true });
   addEventListener('resize', () => requestAnimationFrame(placeFloats));
   ['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault()));
   let rT, lastW = 0;

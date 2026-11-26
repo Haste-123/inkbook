@@ -45,7 +45,14 @@ function drawSecPop(box, s) {
       <button class="chip" data-rm>Remove heading</button>
       <button class="chip danger" data-del>${icon('trash')}Delete…</button>
     </div>`;
-  const reanchor = () => { if (!pop) return; const an = secAnchor(s); pop._anchor = an; drawSecPop(box, s); placePopover(an); };
+  // After a change the panel stays exactly where it is (it only nudges back if it would go off screen)
+  const reanchor = () => {
+    if (!pop) return;
+    const left = pop.offsetLeft, top = pop.offsetTop;
+    pop._anchor = secAnchor(s); drawSecPop(box, s);
+    pop.style.left = clamp(left, 8, Math.max(8, innerWidth - pop.offsetWidth - 8)) + 'px';
+    pop.style.top = clamp(top, 8, Math.max(8, innerHeight - pop.offsetHeight - 8)) + 'px';
+  };
   const title = $('.sp-title', box);
   title.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') title.blur(); });
   title.addEventListener('change', async () => { const v = title.value.trim(); if (v && v !== s.title) { s.title = v; await refreshSections(); reanchor(); } });
