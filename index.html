@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Inkbook">
-<meta name="theme-color" content="#f3f3f6">
+<meta name="theme-color" content="#ffffff">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icon-192.png">
@@ -16,57 +16,95 @@
 </head>
 <body>
 
+<!-- ================= LIBRARY ================= -->
 <section id="library">
-  <header class="lib-head">
-    <h1 id="appName">Inkbook</h1>
-    <div class="lib-actions">
-      <input id="search" type="search" placeholder="Search notebooks" autocomplete="off">
-      <button class="btn" id="importPdf"><span data-icon="pdf"></span>Import PDF</button>
-      <button class="btn primary" id="newNb"><span data-icon="plus"></span>New</button>
-      <button class="icon-btn" id="settingsBtn" title="Settings" data-icon="settings"></button>
+  <aside id="libSide" class="lib-side">
+    <div class="side-brand"><h1 id="appName">Inkbook</h1></div>
+    <nav class="side-nav">
+      <button data-view="home"><span data-icon="home"></span>Home</button>
+      <button data-view="fav"><span data-icon="star"></span>Favorites</button>
+      <button data-view="recent"><span data-icon="clock"></span>Recent</button>
+      <div class="side-label">Folders <button class="mini-btn" id="newFolderSide" title="New folder" data-icon="plus"></button></div>
+      <div id="folderTree" class="tree"></div>
+    </nav>
+    <div class="side-bottom">
+      <button id="importSide"><span data-icon="download"></span>Import notes</button>
+      <button id="convertSide"><span data-icon="convert"></span>Convert files</button>
+      <button id="helpSide"><span data-icon="help"></span>Help &amp; tips</button>
+      <button id="settingsBtn"><span data-icon="settings"></span>Settings</button>
     </div>
-  </header>
-  <nav id="chips" class="chips"></nav>
-  <main id="grid" class="grid"></main>
+  </aside>
+  <div class="drawer-back" id="drawerBack"></div>
+  <div class="lib-main" id="libMain">
+    <header class="lib-head">
+      <button class="icon-btn" id="libMenuBtn" title="Folders" data-icon="sidebar"></button>
+      <div id="crumbs" class="crumbs"></div>
+      <div class="lib-actions">
+        <input id="search" type="search" placeholder="Search notebooks, lessons, text" autocomplete="off">
+        <button class="icon-btn" id="sortBtn" title="Sort" data-icon="sort"></button>
+        <button class="icon-btn" id="layoutBtn" title="Grid / list" data-icon="list"></button>
+        <button class="btn primary" id="newBtn"><span data-icon="plus"></span>New</button>
+      </div>
+    </header>
+    <main id="libContent"></main>
+  </div>
 </section>
 
+<!-- ================= EDITOR ================= -->
 <section id="editor" hidden>
   <header class="toolbar">
-    <div class="tb-group">
+    <div class="tb-group tb-left">
       <button class="icon-btn" id="backBtn" title="Library" data-icon="back"></button>
+      <button class="icon-btn" id="sideBtn" title="Outline, pages & bookmarks" data-icon="sidebar"></button>
       <div id="nbTitle" class="nb-title"></div>
     </div>
-    <div class="tb-group">
-      <button class="icon-btn" id="undoBtn" title="Undo" data-icon="undo"></button>
-      <button class="icon-btn" id="redoBtn" title="Redo" data-icon="redo"></button>
+    <div class="tb-group tb-mid">
+      <button class="icon-btn" id="undoBtn" title="Undo (two-finger tap)" data-icon="undo"></button>
+      <button class="icon-btn" id="redoBtn" title="Redo (three-finger tap)" data-icon="redo"></button>
       <span class="sep"></span>
-      <button class="icon-btn tool" data-tool="pen" title="Pen (P)" data-icon="pen"></button>
-      <button class="icon-btn tool" data-tool="hl" title="Highlighter (H)" data-icon="hl"></button>
-      <button class="icon-btn tool" data-tool="eraser" title="Eraser (E)" data-icon="eraser"></button>
-      <button class="icon-btn tool" data-tool="lasso" title="Lasso select (L)" data-icon="lasso"></button>
-      <button class="icon-btn tool" data-tool="text" title="Text (T)" data-icon="text"></button>
+      <button class="icon-btn tool" data-tool="pen" data-pop-anchor title="Pen (P) — tap again for options" data-icon="pen"></button>
+      <button class="icon-btn tool" data-tool="hl" data-pop-anchor title="Highlighter (H)" data-icon="hl"></button>
+      <button class="icon-btn tool" data-tool="eraser" data-pop-anchor title="Eraser (E)" data-icon="eraser"></button>
+      <button class="icon-btn tool" data-tool="shape" data-pop-anchor title="Shapes (S)" data-icon="shape"></button>
+      <button class="icon-btn tool" data-tool="lasso" data-pop-anchor title="Lasso select (L)" data-icon="lasso"></button>
+      <button class="icon-btn tool" data-tool="text" data-pop-anchor title="Text (T)" data-icon="text"></button>
+      <button class="icon-btn tool" data-tool="laser" data-pop-anchor title="Laser pointer (K)" data-icon="laser"></button>
+      <button class="icon-btn" id="imageBtn" title="Insert image (I)" data-icon="image"></button>
       <span class="sep"></span>
-      <div id="colors" class="colors"></div>
-      <div id="sizes" class="sizes"></div>
+      <div id="optsInline" class="opts-inline"></div>
+      <button class="opts-btn" id="optsBtn" data-pop-anchor title="Tool options"><i></i><span data-icon="chev"></span></button>
     </div>
-    <div class="tb-group">
+    <div class="tb-group tb-right">
+      <button class="icon-btn" id="bookmarkBtn" title="Bookmark this page" data-icon="bookmark"></button>
       <button class="icon-btn" id="pencilBtn" title="Pencil-only mode: fingers scroll" data-icon="hand"></button>
       <button class="icon-btn" id="addPageBtn" title="Add page" data-icon="addpage"></button>
-      <button class="icon-btn" id="pagesBtn" title="All pages" data-icon="pages"></button>
       <button class="icon-btn" id="moreBtn" title="More" data-icon="more"></button>
     </div>
   </header>
-  <div id="scroller"><div id="pages"></div></div>
-  <div id="pageInd" class="page-ind"></div>
-  <div class="zoom-ctl">
-    <button id="zoomOut" title="Zoom out">−</button>
-    <button id="zoomFit" title="Fit width"><span id="zoomLbl">100%</span></button>
-    <button id="zoomIn" title="Zoom in">+</button>
+  <div class="ed-body">
+    <aside id="edSide" class="ed-side" hidden>
+      <div class="side-tabs">
+        <button data-tab="outline">Outline</button>
+        <button data-tab="saved">Saved</button>
+        <button data-tab="pages">Pages</button>
+        <button data-tab="marks">Bookmarks</button>
+      </div>
+      <div id="sideBody" class="side-body"></div>
+      <div class="side-foot"><button class="btn" id="addSecBtn"><span data-icon="plus"></span>Lesson / topic</button></div>
+    </aside>
+    <div id="scroller"><div id="pages"></div></div>
+    <button id="pageInd" class="page-ind"></button>
+    <div class="zoom-ctl">
+      <button id="zoomOut" title="Zoom out">−</button>
+      <button id="zoomFit" title="Fit width"><span id="zoomLbl">100%</span></button>
+      <button id="zoomIn" title="Zoom in">+</button>
+    </div>
   </div>
 </section>
 
 <input type="color" id="colorPick" class="hidden-input" tabindex="-1">
 <div id="toast" class="toast" hidden></div>
 <script src="app.js"></script>
+<script src="io.js"></script>
 </body>
 </html>
