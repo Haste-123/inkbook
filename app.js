@@ -777,9 +777,13 @@ function currentIndex() {
 }
 function scrollToPage(i, smooth) {
   const el = E.els.get(E.pages[i]?.id); if (!el) return;
-  const prev = el.previousElementSibling, top = prev?.classList.contains('sec-divider') ? prev : el;
-  let t = top; while (t.previousElementSibling?.classList.contains('sec-divider')) t = t.previousElementSibling;
-  scroller.scrollTo({ top: t.offsetTop - 10, behavior: smooth ? 'smooth' : 'auto' });
+  let t = el; while (t.previousElementSibling?.classList.contains('sec-divider')) t = t.previousElementSibling;
+  // Centre the page horizontally (pages can have different widths) and, if it fits, vertically too
+  const vw = scroller.clientWidth, vh = scroller.clientHeight;
+  const left = el.offsetLeft + el.offsetWidth / 2 - vw / 2;
+  const blockTop = t.offsetTop, blockH = el.offsetTop + el.offsetHeight - blockTop;
+  const top = blockH + 20 < vh ? blockTop - (vh - blockH) / 2 : blockTop - 10;
+  scroller.scrollTo({ top: Math.max(0, top), left: Math.max(0, left), behavior: smooth ? 'smooth' : 'auto' });
 }
 function goToBox(p, box) {
   const el = E.els.get(p.id); if (!el) return;
@@ -1351,19 +1355,37 @@ function applySelTransform(dx, dy, k) {
   pushUndo(p, before); refreshPage(p); setSelection(p, ns, ni, nt);
 }
 function hideSelMenu() { selMenu?.remove(); selMenu = null; }
-function floatMenu(host, p, x, y, html, onAct) {
+// Floating menus live on screen (not inside the page) so they can always be kept fully visible:
+// above the selection if there's room, otherwise below it, wrapping onto two rows on narrow screens.
+function floatMenu(host, p, x, y, html, onAct, yb = y) {
   const m = document.createElement('div'); m.className = 'float-menu';
-  m.style.setProperty('--x', clamp(x, 200, p.w - 200)); m.style.setProperty('--y', Math.max(y, 70));
-  m.innerHTML = html;
+  m.innerHTML = html; m._at = { host, p, x, y, yb };
+  m.addEventListener('pointerdown', e => e.stopPropagation());
   m.addEventListener('click', e => { const b = e.target.closest('button'); if (b?.dataset.a) onAct(b.dataset.a, b); });
-  host.appendChild(m); return m;
+  document.body.appendChild(m); placeFloat(m); return m;
 }
+function placeFloat(m) {
+  if (!m?.isConnected) return;
+  const { host, p, x, y, yb } = m._at;
+  if (!host.isConnected || $('#editor').hidden) { m.remove(); return; }
+  const r = host.getBoundingClientRect(), u = r.width / p.w, w = m.offsetWidth, h = m.offsetHeight, M = 8;
+  const topLimit = $('.toolbar').getBoundingClientRect().bottom + M, botLimit = innerHeight - M - 50;
+  const cx = r.left + x * u, sTop = r.top + y * u, sBot = r.top + yb * u;
+  let top = sTop - h - 12, below = false;
+  if (top < topLimit) { top = sBot + 12; below = true; }
+  if (top + h > botLimit) { top = clamp(Math.max(sTop, topLimit) + 8, topLimit, botLimit - h); below = false; }
+  m.style.left = clamp(cx - w / 2, M, innerWidth - w - M) + 'px';
+  m.style.top = top + 'px';
+  m.classList.toggle('below', below);
+  m.style.visibility = sBot < topLimit - 30 || sTop > innerHeight ? 'hidden' : '';
+}
+const placeFloats = () => { placeFloat(selMenu); placeFloat(pasteMenu); };
 function showSelMenu() {
   hideSelMenu(); if (!E.sel) return;
   const p = E.sel.page, b = E.sel.box, host = E.els.get(p.id); if (!host) return;
   selMenu = floatMenu(host, p, (b[0] + b[2]) / 2, b[1],
     `<button data-a="ask" class="ask-btn">✦ Ask Claude</button><button data-a="style" data-pop-anchor>Style</button><button data-a="cut">Cut</button><button data-a="copy">Copy</button><button data-a="dup">Duplicate</button><button data-a="save">★ Save</button><button data-a="del" class="danger">Delete</button>`,
-    (act, btn) => act === 'style' ? openSelStyle(btn) : act === 'ask' ? guard(askClaude)(E.sel.page, E.sel.box) : selAction(act));
+    (act, btn) => act === 'style' ? openSelStyle(btn) : act === 'ask' ? guard(askClaude)(E.sel.page, E.sel.box) : selAction(act), b[3]);
 }
 function hidePasteMenu() { pasteMenu?.remove(); pasteMenu = null; }
 function showPasteMenu(p, el, pt) {
@@ -1967,7 +1989,8 @@ async function boot() {
   pagesEl.addEventListener('click', e => { const d = e.target.closest('.sec-divider'); if (d) sectionMenu(E.nb.sections.find(s => s.id === d.dataset.sid)); });
   scroller.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); zoomAt(E.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY); } }, { passive: false });
   let indQ = false;
-  scroller.addEventListener('scroll', () => { if (!indQ) { indQ = true; requestAnimationFrame(() => { indQ = false; updateInd(); }); } }, { passive: true });
+  scroller.addEventListener('scroll', () => { if (!indQ) { indQ = true; requestAnimationFrame(() => { indQ = false; updateInd(); placeFloats(); }); } }, { passive: true });
+  addEventListener('resize', () => requestAnimationFrame(placeFloats));
   ['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault()));
   let rT, lastW = 0;
   new ResizeObserver(() => {
