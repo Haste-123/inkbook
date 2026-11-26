@@ -1,5 +1,5 @@
 /* Offline support: caches the app + libraries so it works with no internet. */
-const VERSION = 'inkbook-v2';
+const VERSION = 'inkbook-v3';
 const CORE = ['./', './index.html', './styles.css', './app.js', './io.js', './manifest.json',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 const LIBS = [

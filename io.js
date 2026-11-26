@@ -298,7 +298,8 @@ const HELP = [
       <li><b>Shapes</b>: line, arrow, rectangle, ellipse, triangle. Drag to draw.</li>
       <li><b>Lasso</b>: circle things (or switch to Rectangle mode) to select strokes, images and text. Tap a single stroke or image to select just that. Drag inside the box to move, drag the round corner handle to resize, and tap a color to recolor. The menu has Cut, Copy, Duplicate, <b>★ Save as</b> and Delete. Tap an empty spot to paste, on any page or even another notebook.</li>
       <li><b>Text</b>: tap to type. Drag the ⠿ handle to move, × to delete. Choose font and size in the options. With Apple Pencil you can handwrite inside a text box and iPad turns it into typed text (Scribble).</li>
-      <li><b>Laser pointer</b>: a fading red trail for presenting or explaining. Never saved.</li>
+      <li><b>Style</b>: select anything with the lasso, then tap <b>Style</b> to change its color, the thickness of handwriting, or the font, size, bold and italic of text. A text box being typed in has its own <b>Aa</b> button.</li>
+      <li><b>Laser pointer</b> (⋯ menu → Tools): a fading red trail for presenting. Never saved. Tap the pen to leave it.</li>
       <li><b>Image</b>: insert from Photos, the camera or Files. You can also drag images in from Photos in Split View, or paste them.</li>
     </ul>
     <p>Tap a color that's already selected to change it to any color you like.</p>`],
@@ -309,6 +310,8 @@ const HELP = [
       <li><b>Hold the pen still</b> at the end of a stroke: snap to a shape</li>
       <li><b>Drag a page's bottom or right edge</b> (blue handle): make the page longer or wider, like in Paint</li>
       <li>Tap the <b>page counter</b> at the bottom to jump to any lesson or topic</li>
+      <li>In Pencil-only mode, <b>tap an image or text box with your finger</b> to select it, then drag it with your finger</li>
+      <li><b>Double-tap a notebook's name</b> (at the top, or under its cover in the library) to rename it. This also works for folder names.</li>
     </ul>`],
   ['Lessons, topics & navigation', `
     <p>Split a notebook into <b>Lessons</b> (lectures, chapters) and <b>Topics</b> inside them: ⋯ → <i>+ Lesson / topic</i>, or the sidebar button. They show as headings between pages.</p>

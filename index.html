@@ -55,24 +55,28 @@
   <header class="toolbar">
     <div class="tb-group tb-left">
       <button class="icon-btn" id="backBtn" title="Library" data-icon="back"></button>
-      <button class="icon-btn" id="sideBtn" title="Outline, pages & bookmarks" data-icon="sidebar"></button>
-      <div id="nbTitle" class="nb-title"></div>
+      <button class="icon-btn" id="sideBtn" title="Outline, saved items, pages & bookmarks" data-icon="sidebar"></button>
+      <div id="nbTitle" class="nb-title" title="Double-tap to rename"></div>
     </div>
     <div class="tb-group tb-mid">
-      <button class="icon-btn" id="undoBtn" title="Undo (two-finger tap)" data-icon="undo"></button>
-      <button class="icon-btn" id="redoBtn" title="Redo (three-finger tap)" data-icon="redo"></button>
-      <span class="sep"></span>
-      <button class="icon-btn tool" data-tool="pen" data-pop-anchor title="Pen (P) — tap again for options" data-icon="pen"></button>
-      <button class="icon-btn tool" data-tool="hl" data-pop-anchor title="Highlighter (H)" data-icon="hl"></button>
-      <button class="icon-btn tool" data-tool="eraser" data-pop-anchor title="Eraser (E)" data-icon="eraser"></button>
-      <button class="icon-btn tool" data-tool="shape" data-pop-anchor title="Shapes (S)" data-icon="shape"></button>
-      <button class="icon-btn tool" data-tool="lasso" data-pop-anchor title="Lasso select (L)" data-icon="lasso"></button>
-      <button class="icon-btn tool" data-tool="text" data-pop-anchor title="Text (T)" data-icon="text"></button>
-      <button class="icon-btn tool" data-tool="laser" data-pop-anchor title="Laser pointer (K)" data-icon="laser"></button>
-      <button class="icon-btn" id="imageBtn" title="Insert image (I)" data-icon="image"></button>
-      <span class="sep"></span>
-      <div id="optsInline" class="opts-inline"></div>
-      <button class="opts-btn" id="optsBtn" data-pop-anchor title="Tool options"><i></i><span data-icon="chev"></span></button>
+      <div class="tb-pill">
+        <button class="icon-btn" id="undoBtn" title="Undo (two-finger tap)" data-icon="undo"></button>
+        <button class="icon-btn" id="redoBtn" title="Redo (three-finger tap)" data-icon="redo"></button>
+      </div>
+      <div class="tb-pill tools-pill">
+        <button class="icon-btn tool" data-tool="pen" data-pop-anchor title="Pen (P) — tap again for options" data-icon="pen"></button>
+        <button class="icon-btn tool" data-tool="hl" data-pop-anchor title="Highlighter (H)" data-icon="hl"></button>
+        <button class="icon-btn tool" data-tool="eraser" data-pop-anchor title="Eraser (E)" data-icon="eraser"></button>
+        <button class="icon-btn tool" data-tool="shape" data-pop-anchor title="Shapes (S)" data-icon="shape"></button>
+        <button class="icon-btn tool" data-tool="lasso" data-pop-anchor title="Lasso select (L)" data-icon="lasso"></button>
+        <button class="icon-btn tool" data-tool="text" data-pop-anchor title="Text (T)" data-icon="text"></button>
+        <button class="icon-btn tool tool-extra" data-tool="laser" data-pop-anchor title="Laser pointer (K) — tap Pen to leave" data-icon="laser"></button>
+        <button class="icon-btn" id="imageBtn" title="Insert image (I)" data-icon="image"></button>
+      </div>
+      <div class="tb-pill opts-pill">
+        <div id="optsInline" class="opts-inline"></div>
+        <button class="opts-btn" id="optsBtn" data-pop-anchor title="Tool options"><i></i><span data-icon="chev"></span></button>
+      </div>
     </div>
     <div class="tb-group tb-right">
       <button class="icon-btn" id="bookmarkBtn" title="Bookmark this page" data-icon="bookmark"></button>
