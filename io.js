@@ -354,6 +354,32 @@ const HELP = [
     <p class="hint">Word documents are converted by laying out their text and images; complex layouts may shift slightly. PDF → Word puts each page into Word as a picture.</p>`],
   ['Backup & offline', `
     <p>Everything works offline and stays <b>on this iPad only</b>. Settings → <b>Back up everything</b> makes one file. Save it to iCloud Drive now and then. Restore it any time, or on a new iPad.</p>`],
+  ['Presets & gestures', `
+    <ul><li><b>Pen presets</b>: the bar on the left edge. Tap one to switch pen, color and size at once. Set up a pen, then tap <b>+</b> to save it. Hold a preset to move, replace or remove it. ‹ hides the bar.</li>
+    <li><b>Tool wheel</b>: press and hold one finger on the page (Pencil-only mode). Pick a tool, undo/redo, a preset, or <b>Last</b> to go back to the previous tool.</li>
+    <li><b>Double-tap</b> with a finger: swap between your current and previous tool (e.g. pen ⇄ eraser).</li>
+    <li>Two-finger tap = undo, three-finger tap = redo. Turn any of these off in Settings.</li></ul>`],
+  ['Tables & graphs', `
+    <ul><li>⋯ → <b>Table</b>. Type in the cells, or handwrite in them with the Pencil. Tab = next cell, Return = cell below.</li>
+    <li>To change a table later, tap it with any tool (or your finger) → <b>✎ Edit table</b>. With the Text tool you can tap a cell directly. Lasso it to move, resize, duplicate or delete it.</li>
+    <li><b>📈 Graph</b>: line, bar, scatter or pie from your columns. Add a <b>trendline</b> like Excel: linear, polynomial (order 2–6), exponential, logarithmic or power, with its <b>equation</b> and <b>R²</b> shown on the graph.</li></ul>`],
+  ['Stickers & page layouts', `
+    <ul><li>⋯ → <b>Stickers</b>: labels (Important, Exam!, Formula…), symbols, and ink shapes (arrows, braces, checkboxes) that stay editable.</li>
+    <li>Make your own: lasso something → ⋯ → <b>Save as sticker</b>. It appears under <b>My stickers</b>.</li>
+    <li>⋯ → <b>Page layout</b>: Cornell notes, weekly planner, lab report (with a results table), worked math solution, to-do list, lecture notes, exam revision. You can also <b>save any page as your own layout</b>.</li></ul>`],
+  ['Links between pages', `
+    <p>Lasso some writing → ⋯ → <b>Add a link</b>. Choose a page or lesson in this notebook, another notebook, or a website. A small 🔗 chip appears: tap it to jump there, and a <b>Back</b> button takes you back. Hold the chip to change or remove the link.</p>`],
+  ['Audio recording', `
+    <ul><li>Tap the <b>microphone</b> in the toolbar to record a lecture; tap again to stop. Everything you write while recording is linked to that moment.</li>
+    <li>⋯ → <b>Recordings</b> (or hold the microphone): play, rename, share or delete.</li>
+    <li>While playing, ink written later is faded, so you can watch your notes appear. <b>Tap any ink</b> to jump the audio to when you wrote it. <b>Follow</b> scrolls along with the notes.</li></ul>
+    <p class="hint">The first time, iPad asks for microphone permission. Recording stops if you leave the notebook or close the app.</p>`],
+  ['Split view', `
+    <p>⋯ → <b>Split view</b> shows another notebook (or another part of this one) beside your notes, e.g. lecture slides next to your writing. Scroll and pinch it separately, drag its left edge to resize, and tap its title to switch notebook. On a narrow screen it opens at the bottom.</p>`],
+  ['Planner & exams', `
+    <ul><li>Library → <b>Planner</b>: your exams with a <b>countdown</b>, and study tasks grouped by Overdue, Today, Next 7 days and Later.</li>
+    <li>Each subject folder shows its own exams and tasks at the top. Home shows what's <b>coming up</b>.</li>
+    <li>Tap an exam → <b>Make a study plan</b>: Inkbook spreads a review session for each lesson in that subject until the exam, and keeps the day before for practice.</li></ul>`],
   ['Keyboard shortcuts', `
     <p>With a keyboard: <b>P</b> pen · <b>H</b> highlighter · <b>E</b> eraser · <b>S</b> shapes · <b>L</b> lasso · <b>T</b> text · <b>K</b> laser · <b>I</b> image · <b>B</b> bookmark · <b>⌘Z</b> / <b>⇧⌘Z</b> undo / redo · <b>⌘C / ⌘X / ⌘V / ⌘D</b> copy / cut / paste / duplicate · <b>⌘A</b> select all · <b>Delete</b> remove selection · <b>?</b> this help</p>`],
 ];
@@ -366,7 +392,7 @@ function openHelp(topic = 0) {
 
 // ---------- Start ----------
 boot().then(() => {
-  bootFind(); bootOrganize();
+  bootFind(); bootOrganize(); bootPlus();
   $('#helpSide')?.addEventListener('click', () => openHelp());
   document.addEventListener('keydown', e => { if (e.key === '?' && !e.target.closest?.('[contenteditable], input, textarea')) openHelp(); });
   if (!localStorage.getItem('inkbook.seenHelp2')) { try { localStorage.setItem('inkbook.seenHelp2', '1'); } catch { } toast('New: folders, lessons, images, shapes, saved questions, import & convert. Tap Help in the sidebar for a tour.', 6000); }

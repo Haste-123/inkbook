@@ -24,6 +24,7 @@
       <button data-view="home"><span data-icon="home"></span>Home</button>
       <button data-view="fav"><span data-icon="star"></span>Favorites</button>
       <button data-view="recent"><span data-icon="clock"></span>Recent</button>
+      <button data-view="planner"><span data-icon="calendar"></span>Planner<span class="nav-count" id="plannerCount"></span></button>
       <div class="side-label">Folders <button class="mini-btn" id="newFolderSide" title="New folder" data-icon="plus"></button></div>
       <div id="folderTree" class="tree"></div>
     </nav>
@@ -79,6 +80,7 @@
       </div>
     </div>
     <div class="tb-group tb-right">
+      <button class="rec-btn" id="recBtn" title="Record audio (synced to your notes)"><span data-icon="mic"></span><b id="recTime"></b></button>
       <button class="icon-btn" id="bookmarkBtn" title="Bookmark this page" data-icon="bookmark"></button>
       <button class="icon-btn" id="pencilBtn" title="Pencil-only mode: fingers scroll" data-icon="hand"></button>
       <button class="icon-btn" id="addPageBtn" title="Add page" data-icon="addpage"></button>
@@ -103,13 +105,17 @@
         <button class="btn" id="addTopicBtn"><span data-icon="plus"></span>Topic</button>
       </div>
     </aside>
-    <div id="scroller"><div id="pages"></div></div>
-    <button id="pageInd" class="page-ind"></button>
-    <div class="zoom-ctl">
-      <button id="zoomOut" title="Zoom out">−</button>
-      <button id="zoomFit" title="Fit width"><span id="zoomLbl">100%</span></button>
-      <button id="zoomIn" title="Zoom in">+</button>
+    <div class="main-area" id="mainArea">
+      <div id="scroller"><div id="pages"></div></div>
+      <button id="pageInd" class="page-ind"></button>
+      <div class="zoom-ctl">
+        <button id="zoomOut" title="Zoom out">−</button>
+        <button id="zoomFit" title="Fit width"><span id="zoomLbl">100%</span></button>
+        <button id="zoomIn" title="Zoom in">+</button>
+      </div>
+      <div id="favBar" class="fav-bar"></div>
     </div>
+    <aside id="refPane" class="ref-pane" hidden></aside>
   </div>
 </section>
 
@@ -121,6 +127,7 @@
 <script src="organize.js"></script>
 <script src="typeset.js"></script>
 <script src="tables.js"></script>
+<script src="plus.js"></script>
 <script src="io.js"></script>
 </body>
 </html>

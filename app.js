@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '12';
+const APP_VERSION = '13';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -344,6 +344,8 @@ function renderPage(ctx, p, s, o = {}) {
   for (const st of p.strokes) {
     if (o.skip?.has(st)) continue;
     if (v) { const b = bbox(st), m = st.w; if (off(b[0] - m, b[1] - m, b[2] + m, b[3] + m)) continue; }
+    const pd = globalThis.PLAY_DIM;                     // audio playback: ink written later than "now" is faded
+    if (pd && !o.texts && st.ra === pd.id && st.rt > pd.t) { ctx.globalAlpha = 0.16; drawStroke(ctx, st, s, dark); ctx.globalAlpha = 1; continue; }
     drawStroke(ctx, st, s, dark);
   }
   if (o.texts) { drawTexts(ctx, p, s); drawTables(ctx, p, s); }
@@ -438,7 +440,7 @@ function renderCrumbs() {
     const path = folderPath(LIB.folderId);
     html = `<button class="crumb" data-crumb="">Home</button>` + path.map((f, i) => `<span class="crumb-sep">›</span>` +
       (i === path.length - 1 ? `<span class="crumb cur">${esc(f.name)}</span>` : `<button class="crumb" data-crumb="${f.id}">${esc(f.name)}</button>`)).join('');
-  } else html = `<span class="crumb cur">${{ home: 'Home', fav: 'Favorites', recent: 'Recent' }[LIB.view]}</span>`;
+  } else html = `<span class="crumb cur">${{ home: 'Home', fav: 'Favorites', recent: 'Recent', planner: 'Planner' }[LIB.view]}</span>`;
   $('#crumbs').innerHTML = html;
 }
 function nbMeta(n) {
@@ -709,7 +711,7 @@ const E = {
 };
 let active = null, pinch = null, io = null, liveQueued = false, selMenu = null, pasteMenu = null, pop = null, tapG = null;
 const laser = { el: null, pts: [], raf: 0 };
-const sz = t => S.sizes[t][E.size[t]];
+const sz = t => (E.pw && E.pw.t === t) ? E.pw.w : S.sizes[t][E.size[t]];   // E.pw: width from a pen preset
 const palFor = t => t === 'hl' ? 'hl' : ['pen', 'shape', 'text', 'lasso'].includes(t) ? 'pen' : null;
 const sizeKey = t => ['pen', 'hl', 'eraser', 'shape', 'text'].includes(t) ? t : null;
 
@@ -738,6 +740,7 @@ async function openNotebook(id, goto) {
 async function leaveNotebook() {
   if (!E.nb) return;
   clearSelection(); hidePasteMenu(); closePopover(); document.activeElement?.blur?.();
+  await globalThis.onLeaveNb?.();
   E.nb.lastPage = currentIndex();
   await flush();
   try { await makeThumb(E.nb, E.pages); } catch (e) { console.warn(e); }
@@ -935,13 +938,13 @@ function buildToolOptions(box, full) {
     const row = add(`<div class="opt-row sizes"></div>`);
     S.sizes[sk].forEach((v, i) => {
       const b = document.createElement('button'); b.className = 'size' + (E.size[sk] === i ? ' on' : ''); b.innerHTML = sizeDot(sk, v);
-      b.onclick = () => { E.size[sk] = i; updateToolbar(); }; row.appendChild(b);
+      b.onclick = () => { E.size[sk] = i; E.pw = null; updateToolbar(); }; row.appendChild(b);
     });
     if (full) {
       const [mn, mx, step] = SIZE_RANGE[sk], cur = S.sizes[sk][E.size[sk]];
       const r = add(`<label class="opt-slider"><span>Size</span><input type="range" min="${mn}" max="${mx}" step="${step}" value="${cur}"><b>${cur}</b></label>`);
       const inp = $('input', r);
-      inp.oninput = () => { S.sizes[sk][E.size[sk]] = +inp.value; $('b', r).textContent = inp.value; buildToolOptions($('#optsInline'), false); };
+      inp.oninput = () => { E.pw = null; S.sizes[sk][E.size[sk]] = +inp.value; $('b', r).textContent = inp.value; buildToolOptions($('#optsInline'), false); };
       inp.onchange = () => { saveSettings(); updateToolbar(); };
     }
   }
@@ -1027,7 +1030,7 @@ function selScreenRect() {
 }
 
 // ---------- Undo ----------
-const snap = p => ({ strokes: p.strokes.slice(), texts: p.texts.slice(), images: p.images.slice(), tables: (p.tables || []).map(t => structuredClone(t)) });
+const snap = p => ({ strokes: p.strokes.slice(), texts: p.texts.slice(), images: p.images.slice(), tables: (p.tables || []).map(t => structuredClone(t)), links: (p.links || []).map(l => ({ ...l })) });
 function pushUndo(p, before) {
   E.undo.push({ id: p.id, before, after: snap(p) }); if (E.undo.length > 300) E.undo.shift();
   E.redo = []; markDirty(p); updateUndoBtns();
@@ -1037,6 +1040,7 @@ function applyHist(from, to, key) {
   const p = E.byId.get(u.id); if (!p) return applyHist(from, to, key);
   p.strokes = u[key].strokes.slice(); p.texts = u[key].texts.slice(); p.images = u[key].images.slice();
   if (u[key].tables) p.tables = u[key].tables.map(t => structuredClone(t));
+  if (u[key].links) p.links = u[key].links.map(l => ({ ...l }));
   to.push(u); refreshPage(p); markDirty(p); updateUndoBtns();
 }
 const undo = () => applyHist(E.undo, E.redo, 'before');
@@ -1180,6 +1184,7 @@ function hitObject(p, pt, strokesToo) {
     if (pt.x >= im.x && pt.x <= im.x + im.w && pt.y >= im.y && pt.y <= im.y + im.h) return { images: new Set([im]) };
   }
   for (const t of p.texts) { const b = textBox(p, t); if (pt.x >= b[0] && pt.x <= b[2] && pt.y >= b[1] && pt.y <= b[3]) return { texts: new Set([t]) }; }
+  for (let i = p.tables.length - 1; i >= 0; i--) { const t = p.tables[i], b = tableBox(p, t); if (pt.x >= b[0] && pt.x <= b[2] && pt.y >= b[1] && pt.y <= b[3]) return { tables: new Set([t]) }; }
   if (strokesToo) for (let i = p.strokes.length - 1; i >= 0; i--) if (hitStroke(p.strokes[i], pt.x, pt.y, 8)) return { strokes: new Set([p.strokes[i]]) };
   return null;
 }
@@ -1187,8 +1192,9 @@ function onFingerUp(e) {
   const f = fingerTap; if (!f || e.pointerId !== f.id) return;
   fingerTap = null;
   if (e.type !== 'pointerup' || Date.now() - f.t > 400 || Math.hypot(e.clientX - f.x, e.clientY - f.y) > 10) return;
+  if (globalThis.playSeekAt?.(f.page, f.pt)) return;
   const hit = hitObject(f.page, f.pt, false);
-  if (hit) { if (E.tool !== 'lasso') setTool('lasso'); setSelection(f.page, hit.strokes, hit.images, hit.texts); }
+  if (hit) { if (E.tool !== 'lasso') setTool('lasso'); setSelection(f.page, hit.strokes, hit.images, hit.texts, hit.tables); }
   else if (E.sel) clearSelection();
 }
 function armHold(a) { clearTimeout(a.holdT); a.holdT = setTimeout(() => trySnap(a), 650); }
@@ -1201,7 +1207,7 @@ function trySnap(a) {
 }
 function onDown(e) {
   if (!E.nb || pinch) return;
-  if (e.target.closest('.text-item, .float-menu, .grow, .page-tabs, .hit')) return;
+  if (e.target.closest('.text-item, .tbl, .float-menu, .grow, .page-tabs, .hit')) return;
   if (e.pointerType === 'pen') { notePencil(); notePen(); }
   const pageEl = e.target.closest('.page');
   if (!pageEl) { if (E.tool === 'lasso') clearSelection(); hidePasteMenu(); return; }
@@ -1282,7 +1288,7 @@ function onUp(e) {
   else if (a.mode === 'ink' || a.mode === 'snapped' || a.mode === 'shape') {
     const tiny = a.mode === 'shape' && (!a.end || Math.hypot(a.end.x - a.start.x, a.end.y - a.start.y) < 3);
     if (a.stroke.p.length && !tiny) {
-      const before = snap(p); p.strokes.push(a.stroke); pushUndo(p, before);
+      const before = snap(p); globalThis.stampRec?.(a.stroke); p.strokes.push(a.stroke); pushUndo(p, before);
       const c = a.pageEl.querySelector('canvas.ink');
       if (c.width) { const cx = c.getContext('2d'); setPageTransform(cx, a.pageEl); drawStroke(cx, a.stroke, a.pageEl._scale, isDark(p.paperColor)); }
     }
@@ -1373,7 +1379,7 @@ function drawSelection(ctx, a, s, dark, page) {
     ctx.save(); ctx.translate((b[0] + dx) * s, (b[1] + dy) * s); ctx.scale(k, k); ctx.translate(-b[0] * s, -b[1] * s);
     sel.images.forEach(im => drawImg(ctx, page, im, s, { sync: true }));
     sel.strokes.forEach(st => drawStroke(ctx, st, s, dark));
-    drawTexts(ctx, page, s, [...sel.texts]);
+    drawTexts(ctx, page, s, [...sel.texts]); drawTables(ctx, page, s, [...sel.tables]);
     ctx.restore();
   }
   const x0 = (b[0] + dx) * s, y0 = (b[1] + dy) * s, w = (b[2] - b[0]) * k * s, h = (b[3] - b[1]) * k * s;
@@ -1420,17 +1426,18 @@ function selBox(sel) {
   sel.strokes.forEach(st => { const b = bbox(st), w = st.w / 2 + 6; grow(b[0] - w, b[1] - w, b[2] + w, b[3] + w); });
   sel.images.forEach(im => grow(im.x - 4, im.y - 4, im.x + im.w + 4, im.y + im.h + 4));
   sel.texts.forEach(t => { const b = textBox(sel.page, t); grow(b[0] - 4, b[1] - 4, b[2] + 4, b[3] + 4); });
+  sel.tables?.forEach(t => { const b = tableBox(sel.page, t); grow(b[0] - 4, b[1] - 4, b[2] + 4, b[3] + 4); });
   return [x0, y0, x1, y1];
 }
-function setSelection(p, strokes = new Set(), images = new Set(), texts = new Set()) {
-  if (!strokes.size && !images.size && !texts.size) return clearSelection();
-  E.sel = { page: p, strokes, images, texts }; E.sel.box = selBox(E.sel);
+function setSelection(p, strokes = new Set(), images = new Set(), texts = new Set(), tables = new Set()) {
+  if (!strokes.size && !images.size && !texts.size && !tables.size) return clearSelection();
+  E.sel = { page: p, strokes, images, texts, tables }; E.sel.box = selBox(E.sel);
   showSelMenu(); scheduleLive();
 }
 function clearSelection() { if (!E.sel) return; E.sel = null; hideSelMenu(); scheduleLive(); }
 function selectAll() {
   setTool('lasso'); const p = E.pages[currentIndex()];
-  setSelection(p, new Set(p.strokes), new Set(p.images), new Set(p.texts));
+  setSelection(p, new Set(p.strokes), new Set(p.images), new Set(p.texts), new Set(p.tables));
 }
 function finishLasso(a) {
   const poly = a.poly, p = a.page;
@@ -1445,17 +1452,21 @@ function finishLasso(a) {
   }
   for (const im of p.images) if (pip(im.x + im.w / 2, im.y + im.h / 2, poly)) images.add(im);
   for (const t of p.texts) { const b = textBox(p, t); if (pip((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, poly)) texts.add(t); }
-  setSelection(p, strokes, images, texts);
+  const tables = new Set();
+  for (const t of p.tables) { const b = tableBox(p, t); if (pip((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, poly) || pip(b[0] + 10, b[1] + 10, poly)) tables.add(t); }
+  setSelection(p, strokes, images, texts, tables);
 }
 function lassoTap(pt, p, el) {
+  if (globalThis.playSeekAt?.(p, pt)) return;
   const hit = hitObject(p, pt, true);
-  if (hit) return setSelection(p, hit.strokes, hit.images, hit.texts);
+  if (hit) return setSelection(p, hit.strokes, hit.images, hit.texts, hit.tables);
   clearSelection();
   if (E.clip) showPasteMenu(p, el, pt);
 }
 function startSelOp() {
   E.moving = true; hideSelMenu();
   E.sel.texts.forEach(t => { const d = textEl(E.sel.page, t); if (d) d.parentElement.style.visibility = 'hidden'; });
+  E.sel.tables.forEach(t => { const d = tableEl(E.sel.page, t); if (d) d.style.visibility = 'hidden'; });
   paint(E.sel.page);
 }
 function applySelTransform(dx, dy, k) {
@@ -1474,7 +1485,15 @@ function applySelTransform(dx, dy, k) {
     if (t.w) n.w = Math.round(t.w * k);                 // resizing keeps the same line breaks
     nt.add(n); return n;
   });
-  pushUndo(p, before); refreshPage(p); setSelection(p, ns, ni, nt);
+  // page links attached to the selected area move with it
+  p.links = (p.links || []).map(l => { const cx = l.x + l.w / 2, cy = l.y + l.h / 2; return cx >= b[0] && cx <= b[2] && cy >= b[1] && cy <= b[3] ? { ...l, x: tx(l.x), y: ty(l.y), w: l.w * k, h: l.h * k } : l; });
+  const nb = new Set();
+  p.tables = p.tables.map(t => {
+    if (!sel.tables.has(t)) return t;
+    const n = { ...structuredClone(t), x: Math.round(tx(t.x)), y: Math.round(ty(t.y)), w: Math.round(Math.max(120, t.w * k)), s: +clamp(t.s * k, 8, 120).toFixed(1) };
+    nb.add(n); return n;
+  });
+  pushUndo(p, before); refreshPage(p); setSelection(p, ns, ni, nt, nb);
 }
 function hideSelMenu() { selMenu?.remove(); selMenu = null; }
 // Floating menus live on screen (not inside the page) so they can always be kept fully visible:
@@ -1505,9 +1524,11 @@ const placeFloats = () => { placeFloat(selMenu); placeFloat(pasteMenu); };
 function showSelMenu() {
   hideSelMenu(); if (!E.sel) return;
   const p = E.sel.page, b = E.sel.box, host = E.els.get(p.id); if (!host) return;
+  const onlyTable = E.sel.tables.size === 1 && !E.sel.strokes.size && !E.sel.images.size && !E.sel.texts.size;
   selMenu = floatMenu(host, p, (b[0] + b[2]) / 2, b[1],
-    `<button data-a="ask" class="ask-btn">✦ Ask Claude</button><button data-a="style" data-pop-anchor>Style</button><button data-a="img">Save image</button><button data-a="cut">Cut</button><button data-a="copy">Copy</button><button data-a="dup">Duplicate</button><button data-a="save">★ Save</button><button data-a="del" class="danger">Delete</button>`,
-    (act, btn) => act === 'style' ? openSelStyle(btn) : act === 'ask' ? guard(askClaude)(E.sel.page, E.sel.box)
+    (onlyTable ? `<button data-a="tedit" class="ask-btn">✎ Edit table</button><button data-a="tgraph">📈 Graph</button>` : '') +
+    `<button data-a="ask" class="ask-btn">✦ Ask Claude</button><button data-a="style" data-pop-anchor>Style</button><button data-a="img">Save image</button><button data-a="copy">Copy</button><button data-a="dup">Duplicate</button><button data-a="save">★ Save</button><button data-a="del" class="danger">Delete</button><button data-a="more" title="Cut, link, sticker">⋯</button>`,
+    (act, btn) => act === 'more' ? guard(selMoreMenu)() : act === 'tedit' ? editTable(p, [...E.sel.tables][0]) : act === 'tgraph' ? guard(tableGraph)(p, [...E.sel.tables][0]) : act === 'style' ? openSelStyle(btn) : act === 'ask' ? guard(askClaude)(E.sel.page, E.sel.box)
       : act === 'img' ? guard(saveSelectionImage)() : selAction(act), b[3]);
 }
 function hidePasteMenu() { pasteMenu?.remove(); pasteMenu = null; }
@@ -1517,7 +1538,7 @@ function showPasteMenu(p, el, pt) {
 }
 function copySel() {
   const s = E.sel; if (!s) return;
-  E.clip = { strokes: [...s.strokes], images: [...s.images].map(i => ({ ...i })), texts: [...s.texts].map(t => ({ ...t })), box: [...s.box] };
+  E.clip = { strokes: [...s.strokes], images: [...s.images].map(i => ({ ...i })), texts: [...s.texts].map(t => ({ ...t })), tables: [...(s.tables || [])].map(t => structuredClone(t)), box: [...s.box] };
 }
 async function pasteClip(p, pt) {
   const c = E.clip; if (!c) return;
@@ -1526,10 +1547,11 @@ async function pasteClip(p, pt) {
   const images = [];
   for (const im of c.images) { const key = await copyBlob(im.key); if (key) images.push({ ...im, id: uid(), key, x: im.x + dx, y: im.y + dy }); }
   const texts = c.texts.map(t => ({ ...t, id: uid(), x: t.x + dx, y: t.y + dy }));
-  p.strokes.push(...strokes); p.images.push(...images); p.texts.push(...texts);
+  const tables = (c.tables || []).map(t => ({ ...structuredClone(t), id: uid(), x: Math.round(t.x + dx), y: Math.round(t.y + dy) }));
+  p.strokes.push(...strokes); p.images.push(...images); p.texts.push(...texts); p.tables.push(...tables);
   pushUndo(p, before); refreshPage(p);
   if (E.tool !== 'lasso') setTool('lasso');
-  setSelection(p, new Set(strokes), new Set(images), new Set(texts));
+  setSelection(p, new Set(strokes), new Set(images), new Set(texts), new Set(tables));
 }
 async function selAction(act) {
   const sel = E.sel; if (!sel) return;
@@ -1540,7 +1562,7 @@ async function selAction(act) {
   if (act === 'cut') copySel();
   if (act === 'del' || act === 'cut') {
     const before = snap(p);
-    p.strokes = p.strokes.filter(s => !sel.strokes.has(s)); p.images = p.images.filter(s => !sel.images.has(s)); p.texts = p.texts.filter(s => !sel.texts.has(s));
+    p.strokes = p.strokes.filter(s => !sel.strokes.has(s)); p.images = p.images.filter(s => !sel.images.has(s)); p.texts = p.texts.filter(s => !sel.texts.has(s)); p.tables = p.tables.filter(s => !sel.tables.has(s));
     E.sel = null; hideSelMenu(); pushUndo(p, before); refreshPage(p); scheduleLive();
   }
 }
@@ -1549,7 +1571,9 @@ function restyleSel(fs, ft) {
   const p = sel.page, before = snap(p), ns = new Set(), nt = new Set();
   p.strokes = p.strokes.map(st => { if (!sel.strokes.has(st)) return st; const n = fs({ ...st }); ns.add(n); return n; });
   p.texts = p.texts.map(t => { if (!sel.texts.has(t)) return t; const n = ft({ ...t }); nt.add(n); return n; });
-  pushUndo(p, before); refreshPage(p); setSelection(p, ns, sel.images, nt);
+  const nb = new Set();
+  p.tables = p.tables.map(t => { if (!sel.tables.has(t)) return t; const n = ft(structuredClone(t)); delete n.f; delete n.b; delete n.i; nb.add(n); return n; });
+  pushUndo(p, before); refreshPage(p); setSelection(p, ns, sel.images, nt, nb);
 }
 const recolorSel = c => restyleSel(st => ({ ...st, c }), t => ({ ...t, c }));
 
@@ -1578,10 +1602,10 @@ function buildStyleControls(box, o) {
 function openSelStyle(anchor) {
   if (!E.sel) return;
   openPopover(anchor, 'style', box => buildStyleControls(box, {
-    strokes: E.sel.strokes.size > 0, texts: E.sel.texts.size > 0,
+    strokes: E.sel.strokes.size > 0, texts: E.sel.texts.size > 0 || E.sel.tables.size > 0,
     cur: () => {
       const s = E.sel; if (!s) return {};
-      const ts = [...s.texts], first = ts[0] || [...s.strokes][0];
+      const ts = [...s.texts], first = ts[0] || [...s.tables][0] || [...s.strokes][0];
       return { c: first?.c, f: ts[0]?.f || 'sans', b: ts.length && ts.every(t => t.b), i: ts.length && ts.every(t => t.i) };
     },
     apply: ch => {
@@ -1593,7 +1617,7 @@ function openSelStyle(anchor) {
 }
 
 // ---------- Text boxes ----------
-function renderTexts(p, el) { const layer = el.querySelector('.text-layer'); layer.innerHTML = ''; p.texts.forEach(t => layer.appendChild(makeTextEl(p, t))); renderTables(p, el); }
+function renderTexts(p, el) { const layer = el.querySelector('.text-layer'); layer.innerHTML = ''; p.texts.forEach(t => layer.appendChild(makeTextEl(p, t))); renderTables(p, el); globalThis.renderLinks?.(p, el); }
 function positionText(p, t, d) {
   d.style.setProperty('--x', t.x); d.style.setProperty('--y', t.y); d.style.color = t.c;
   d.style.setProperty('--fs', t.s); d.style.fontFamily = FONTS[t.f] || FONTS.sans;
@@ -1645,7 +1669,7 @@ function makeTextEl(p, t) {
 function createText(p, el, pt) {
   const s = sz('text');
   const t = { id: uid(), x: clamp(pt.x, 0, p.w - 40), y: clamp(pt.y - s * 0.7, 0, p.h - 30), s, c: E.color.pen, f: S.font, text: '' };
-  p.texts.push(t);
+  globalThis.stampRec?.(t); p.texts.push(t);
   const d = makeTextEl(p, t); el.querySelector('.text-layer').appendChild(d);
   $('.text-body', d).focus();
 }
@@ -1740,6 +1764,7 @@ function shiftContent(p, dx, dy) {
   p.texts = p.texts.map(t => ({ ...t, x: t.x + dx, y: t.y + dy }));
   p.images = p.images.map(im => ({ ...im, x: im.x + dx, y: im.y + dy }));
   p.tables = (p.tables || []).map(t => ({ ...t, x: t.x + dx, y: t.y + dy }));
+  p.links = (p.links || []).map(l => ({ ...l, x: l.x + dx, y: l.y + dy }));
   if (p.bgKey) { p.bgX = (p.bgX || 0) + dx; p.bgY = (p.bgY || 0) + dy; }
   for (const it of E.nb.items) if (it.pageId === p.id) it.box = [it.box[0] + dx, it.box[1] + dy, it.box[2] + dx, it.box[3] + dy];
   p.ocr = null;
@@ -2016,6 +2041,9 @@ function openSettings() {
       <label class="toggle"><input type="checkbox" data-k="pencilOnly" ${S.pencilOnly ? 'checked' : ''}><span>Only Apple Pencil draws (fingers scroll &amp; zoom)</span></label>
       <label class="toggle"><input type="checkbox" data-k="fingerTaps" ${S.fingerTaps ? 'checked' : ''}><span>Two-finger tap = undo, three-finger tap = redo</span></label>
       <label class="toggle"><input type="checkbox" data-k="shapeSnap" ${S.shapeSnap ? 'checked' : ''}><span>Hold the pen still to snap lines and shapes</span></label>
+      <label class="toggle"><input type="checkbox" data-k="favBar" ${S.favBar ? 'checked' : ''}><span>Show the pen presets bar</span></label>
+      <label class="toggle"><input type="checkbox" data-k="wheel" ${S.wheel ? 'checked' : ''}><span>Press and hold a finger on the page for the tool wheel</span></label>
+      <label class="toggle"><input type="checkbox" data-k="dblSwap" ${S.dblSwap ? 'checked' : ''}><span>Double-tap with a finger to switch back to the last tool</span></label>
     </div>
     <div class="field"><label class="lbl">Your data <span id="sStorage"></span></label>
       <div class="seg"><button class="chip" id="sBackup">Back up everything</button><button class="chip" id="sRestore">Restore a backup</button></div>
@@ -2037,7 +2065,7 @@ function openSettings() {
   $('#sKeyDel', m.el).onclick = () => { S.claudeKey = ''; saveSettings(); keyIn.value = ''; toast('Key removed'); };
   $('#sKeyTest', m.el).onclick = guard(async () => { keyIn.onchange(); toast('Testing…', 8000); toast(await testClaudeKey(), 4000); });
   $$('.palette-row', m.el).forEach(row => row.addEventListener('input', e => { S[row.dataset.pal][+e.target.dataset.i] = e.target.value; saveSettings(); }));
-  $$('[data-k]', m.el).forEach(c => c.onchange = () => { S[c.dataset.k] = c.checked; if (c.dataset.k === 'pencilOnly') S.pencilSeen = true; saveSettings(); });
+  $$('[data-k]', m.el).forEach(c => c.onchange = () => { S[c.dataset.k] = c.checked; if (c.dataset.k === 'pencilOnly') S.pencilSeen = true; saveSettings(); if (E.nb) renderFav(); });
   $('#sBackup', m.el).onclick = guard(async () => { m.close(); await exportBackup(); });
   $('#sRestore', m.el).onclick = guard(async () => { m.close(); await importBackup(); });
   navigator.storage?.estimate?.().then(e => { const el = $('#sStorage', m.el); if (el) el.textContent = `· ${fmtSize(e.usage || 0)} used`; });

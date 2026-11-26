@@ -26,6 +26,7 @@ function renderTables(p, el) {
 }
 function positionTable(d, t) {
   d.style.setProperty('--x', t.x); d.style.setProperty('--y', t.y); d.style.setProperty('--fs', t.s); d.style.color = t.c;
+  d.classList.toggle('tb-below', t.y < 70);
   const g = $('.tbl-grid', d); if (g) g.style.gridTemplateColumns = t.cols.map(f => `calc(${(f * t.w).toFixed(2)} * var(--s) * 1px)`).join(' ');
 }
 function replaceTable(p, t, nt, before) {
@@ -51,6 +52,10 @@ function makeTableEl(p, t) {
     cell.textContent = val; grid.appendChild(cell);
   }));
   positionTable(d, t);
+  if (E.editTbl === t.id) d.classList.add('editing');
+  // "editing" stays on until you tap somewhere else (not tied to keyboard focus, which iPad drops when the keyboard hides)
+  d.addEventListener('pointerdown', () => setTableEditing(d, t), true);
+  d.addEventListener('focusin', () => setTableEditing(d, t));
   let focus = { r: 0, c: 0 };
   const remember = e => { const c = e.target.closest('.tc'); if (c) { focus = { r: +c.dataset.r, c: +c.dataset.c }; d._focus = focus; } };
   grid.addEventListener('focusin', remember); grid.addEventListener('pointerdown', remember);
@@ -105,6 +110,23 @@ function makeTableEl(p, t) {
   return d;
 }
 
+function setTableEditing(d, t) {
+  $$('.tbl.editing').forEach(x => { if (x !== d) x.classList.remove('editing'); });
+  d?.classList.add('editing'); E.editTbl = t?.id || null;
+}
+function stopTableEditing() { $$('.tbl.editing').forEach(x => x.classList.remove('editing')); E.editTbl = null; }
+document.addEventListener('pointerdown', e => { if (E.editTbl && !e.target.closest('.tbl, .modal, .popover, .sheet')) stopTableEditing(); }, true);
+// Open a table for editing from any tool (tap it, then Edit table)
+function editTable(p, t, r = 0, c = 0) {
+  if (!t) return;
+  clearSelection(); setTool('text'); E.editTbl = t.id; refreshPage(p);
+  setTimeout(() => {
+    const d = tableEl(p, t); if (!d) return; setTableEditing(d, t);
+    const cell = d.querySelector(`.tc[data-r="${r}"][data-c="${c}"]`) || d.querySelector('.tc');
+    cell?.focus(); try { const s = getSelection(); s.selectAllChildren(cell); s.collapseToEnd(); } catch { }
+  }, 30);
+}
+
 // ---------- Drawing tables for export / previews (same layout as on screen) ----------
 const TBL_PAD_X = 8, TBL_PAD_Y = 6;
 function tableRowHeights(t, ctx = mctx(), s = 1) {
@@ -113,8 +135,8 @@ function tableRowHeights(t, ctx = mctx(), s = 1) {
     return lines * t.s * 1.3 + 2 * TBL_PAD_Y;
   })));
 }
-function drawTables(ctx, p, s) {
-  for (const t of p.tables || []) {
+function drawTables(ctx, p, s, list = p.tables || []) {
+  for (const t of list) {
     const heights = tableRowHeights(t, ctx, 1), total = heights.reduce((a, b) => a + b, 0);
     ctx.save();
     if (t.head && heights.length) { ctx.fillStyle = 'rgba(120,130,160,.14)'; ctx.fillRect(t.x * s, t.y * s, t.w * s, heights[0] * s); }
@@ -162,12 +184,72 @@ function insertTableFlow() {
       const p = E.pages[currentIndex()], vb = visibleBox(p), w = Math.min(Math.max(240, v.cols * 170), p.w - 80);
       const t = makeTable(v.rows, v.cols, Math.max(40, (p.w - w) / 2), clamp(vb[1] + 80, 20, p.h - 60), w, v.head);
       const before = snap(p); p.tables.push(t); pushUndo(p, before);
-      setTool('text'); refreshPage(p);
-      setTimeout(() => tableEl(p, t)?.querySelector('.tc')?.focus(), 30);
+      editTable(p, t);
       out = true; m.close();
     };
     m.onClose = () => res(out); mini();
   });
+}
+
+
+// ---------- Trendlines (same kinds and maths as Excel) ----------
+const SUPS = { 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶' };
+const fmtN = n => { if (!Number.isFinite(n)) return '?'; const a = Math.abs(n); if (a !== 0 && (a < 1e-3 || a >= 1e6)) return n.toExponential(3).replace('e+', 'e'); return String(+n.toPrecision(4)); };
+function solveLin(A, b) {
+  const n = b.length, M = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    if (Math.abs(M[p][c]) < 1e-12) return null;
+    [M[c], M[p]] = [M[p], M[c]];
+    for (let r = 0; r < n; r++) if (r !== c) { const f = M[r][c] / M[c][c]; for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; }
+  }
+  return M.map((r, i) => r[n] / r[i]);
+}
+function polyfit(xs, ys, order) {
+  const n = order + 1, A = Array.from({ length: n }, () => Array(n).fill(0)), b = Array(n).fill(0);
+  xs.forEach((x, k) => { for (let i = 0; i < n; i++) { b[i] += ys[k] * x ** i; for (let j = 0; j < n; j++) A[i][j] += x ** (i + j); } });
+  return solveLin(A, b);
+}
+const cf = n => { const t = fmtN(n); return t === '1' ? '' : t === '-1' ? '−' : t; };   // coefficient: hide a leading 1
+const rSquared = (ys, fx) => { const m = ys.reduce((a, b) => a + b, 0) / ys.length; let sr = 0, st = 0; ys.forEach((y, i) => { sr += (y - fx[i]) ** 2; st += (y - m) ** 2; }); return st ? 1 - sr / st : 1; };
+function polyEq(c) {
+  let s = '';
+  for (let k = c.length - 1; k >= 0; k--) {
+    const v = c[k]; if (v === 0 && c.length > 1) continue;
+    const mag = fmtN(Math.abs(v)), term = k === 0 ? mag : (mag === '1' ? '' : mag) + 'x' + (k > 1 ? SUPS[k] || '^' + k : '');
+    s += s ? (v < 0 ? ' − ' : ' + ') + term : (v < 0 ? '−' : '') + term;
+  }
+  return 'y = ' + (s || '0');
+}
+// kind: linear | poly | exp | log | power  →  { f, eq, r2 } or { err }
+function fitTrend(pts, kind, order = 2) {
+  let P = pts.filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+  if (kind === 'exp' || kind === 'power') { if (P.some(([, y]) => y <= 0)) return { err: 'needs values above 0' }; }
+  if (kind === 'log' || kind === 'power') { if (P.some(([x]) => x <= 0)) return { err: 'needs x values above 0' }; }
+  const need = kind === 'poly' ? order + 1 : 2;
+  if (P.length < need) return { err: `needs at least ${need} points` };
+  const xs = P.map(p => p[0]), ys = P.map(p => p[1]);
+  if (kind === 'linear' || kind === 'poly') {
+    const c = polyfit(xs, ys, kind === 'linear' ? 1 : order); if (!c) return { err: 'cannot fit these numbers' };
+    const f = x => c.reduce((a, v, i) => a + v * x ** i, 0);
+    return { f, eq: polyEq(c), r2: rSquared(ys, xs.map(f)) };
+  }
+  if (kind === 'exp') {           // ln y = ln a + b x
+    const c = polyfit(xs, ys.map(Math.log), 1); if (!c) return { err: 'cannot fit these numbers' };
+    const a = Math.exp(c[0]), b = c[1], f = x => a * Math.exp(b * x);
+    return { f, eq: `y = ${cf(a)}e^(${cf(b)}x)`, r2: rSquared(ys.map(Math.log), xs.map(x => c[0] + b * x)) };
+  }
+  if (kind === 'log') {           // y = a + b ln x
+    const c = polyfit(xs.map(Math.log), ys, 1); if (!c) return { err: 'cannot fit these numbers' };
+    const f = x => c[0] + c[1] * Math.log(x);
+    return { f, eq: `y = ${cf(c[1])}ln(x)${fmtN(c[0]) === '0' ? '' : ` ${c[0] < 0 ? '−' : '+'} ${fmtN(Math.abs(c[0]))}`}`, r2: rSquared(ys, xs.map(f)) };
+  }
+  if (kind === 'power') {         // ln y = ln a + b ln x
+    const lx = xs.map(Math.log), c = polyfit(lx, ys.map(Math.log), 1); if (!c) return { err: 'cannot fit these numbers' };
+    const a = Math.exp(c[0]), b = c[1], f = x => a * x ** b;
+    return { f, eq: `y = ${cf(a)}x^${fmtN(b)}`, r2: rSquared(ys.map(Math.log), lx.map(x => c[0] + b * x)) };
+  }
+  return { err: 'unknown' };
 }
 
 // ---------- Graphs from table columns ----------
@@ -180,15 +262,25 @@ async function tableGraph(p, t) {
   const numeric = header.map((_, c) => rows.filter(r => parseNum(r[c]) !== null).length >= Math.max(1, rows.length * 0.6));
   const ys0 = header.map((_, c) => c).filter(c => c !== 0 && numeric[c]);
   if (!ys0.length && !numeric.some(Boolean)) return toast('A graph needs at least one column of numbers.');
-  const v = { type: 'line', x: 0, ys: ys0.length ? ys0 : [numeric.findIndex(Boolean)], title: '' };
+  const v = { type: 'line', x: 0, ys: ys0.length ? ys0 : [numeric.findIndex(Boolean)], title: '', trend: 'none', order: 2, eq: true, r2: true };
   const m = openModal(`<h2>Make a graph</h2>
     <div class="graph-wrap"><canvas class="graph-prev" width="680" height="400"></canvas></div>
     <div class="field"><label class="lbl">Type</label><div class="seg" data-k="type">${segHtml([['line', '📈 Line'], ['bar', '📊 Bar'], ['scatter', '⋰ Scatter'], ['pie', '◔ Pie']], v.type)}</div></div>
     <div class="field"><label class="lbl">Across the bottom (x)</label><div class="seg" data-k="x">${segHtml(header.map((h, i) => [i, h]), v.x)}</div></div>
     <div class="field"><label class="lbl">Values to plot (y) · tap to choose one or more</label><div class="seg ys">${header.map((h, i) => `<button class="chip${v.ys.includes(i) ? ' on' : ''}${numeric[i] ? '' : ' dim'}" data-y="${i}">${esc(h)}</button>`).join('')}</div></div>
+    <div class="field trend-field"><label class="lbl">Trendline (like Excel)</label><div class="seg" data-k="trend">${segHtml([['none', 'None'], ['linear', 'Linear'], ['poly', 'Polynomial'], ['exp', 'Exponential'], ['log', 'Logarithmic'], ['power', 'Power']], 'none')}</div>
+      <div class="trend-opts" hidden><span class="poly-ord">Order <button class="icon-btn" data-ord="-1">−</button><b data-ordv>2</b><button class="icon-btn" data-ord="1">+</button></span>
+        <label class="toggle"><input type="checkbox" checked data-eq><span>Show equation</span></label><label class="toggle"><input type="checkbox" checked data-r2><span>Show R²</span></label></div>
+      <div class="trend-out"></div></div>
     <div class="field"><label class="lbl">Title (optional)</label><input type="text" name="title" placeholder="e.g. Velocity over time"></div>
     <div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" data-ok>Add graph to page</button></div>`, 'wide');
   let chart = null;
+  const xNumeric = () => rows.every(r => parseNum(r[v.x]) !== null);
+  const xOf = i => (xNumeric() ? parseNum(rows[i][v.x]) : i + 1);   // text labels → 1, 2, 3… (like Excel)
+  const trends = () => {
+    if (v.trend === 'none' || v.type === 'pie') return [];
+    return v.ys.map((c, k) => ({ c, k, ...fitTrend(rows.map((r, i) => [xOf(i), parseNum(r[c])]), v.trend, v.order) }));
+  };
   const cfg = (dpr) => {
     const pie = v.type === 'pie', scatter = v.type === 'scatter';
     const labels = rows.map(r => r[v.x]);
@@ -199,11 +291,29 @@ async function tableGraph(p, t) {
       borderColor: pie ? '#fff' : CHART_COLORS[k % 8], backgroundColor: pie ? rows.map((_, i) => CHART_COLORS[i % 8]) : CHART_COLORS[k % 8] + (v.type === 'bar' ? 'cc' : '33'),
       borderWidth: 2, tension: 0.25, pointRadius: 4, fill: false,
     }));
+    const tr = trends().filter(t => t.f), scatterX = rows.map((_, i) => xOf(i)).filter(Number.isFinite);
+    tr.forEach(t => {
+      let data;
+      if (scatter) {
+        let x0 = Math.min(...scatterX), x1 = Math.max(...scatterX); if ((v.trend === 'log' || v.trend === 'power') && x0 <= 0) x0 = x1 / 1000;
+        data = Array.from({ length: 81 }, (_, i) => { const x = x0 + (x1 - x0) * i / 80; return { x, y: t.f(x) }; });
+      } else data = rows.map((_, i) => t.f(xOf(i)));
+      datasets.push({ type: 'line', label: header[t.c] + ' trend', data, borderColor: CHART_COLORS[t.k % 8], borderDash: [7, 5], borderWidth: 2, pointRadius: 0, fill: false, tension: scatter ? 0 : 0.35, isTrend: true });
+    });
+    const eqPlugin = { id: 'eqs', afterDraw(ch) {
+      if (!tr.length || (!v.eq && !v.r2)) return;
+      const x = ch.ctx, a = ch.chartArea, lines = tr.map(t => `${tr.length > 1 ? header[t.c] + ':  ' : ''}${v.eq ? t.eq : ''}${v.eq && v.r2 ? '     ' : ''}${v.r2 ? 'R² = ' + t.r2.toFixed(4) : ''}`);
+      x.save(); x.font = '600 13px -apple-system, system-ui, sans-serif';
+      const w = Math.max(...lines.map(l => x.measureText(l).width)) + 16, h = lines.length * 19 + 10;
+      x.fillStyle = 'rgba(255,255,255,.88)'; x.strokeStyle = 'rgba(0,0,0,.12)'; x.beginPath(); x.roundRect(a.left + 8, a.top + 8, w, h, 7); x.fill(); x.stroke();
+      lines.forEach((l, i) => { x.fillStyle = CHART_COLORS[tr[i].k % 8]; x.textBaseline = 'top'; x.fillText(l, a.left + 16, a.top + 14 + i * 19); });
+      x.restore();
+    } };
     return {
-      type: v.type, data: { labels, datasets },
+      type: v.type, data: { labels, datasets }, plugins: [eqPlugin],
       options: {
         animation: false, responsive: false, devicePixelRatio: dpr,
-        plugins: { legend: { display: pie || ys.length > 1 }, title: { display: !!v.title, text: v.title, font: { size: 16, weight: '600' } } },
+        plugins: { legend: { display: pie || ys.length > 1, labels: { filter: it => !/ trend$/.test(it.text) } }, title: { display: !!v.title, text: v.title, font: { size: 16, weight: '600' } } },
         scales: pie ? {} : {
           x: { type: scatter ? 'linear' : 'category', title: { display: true, text: header[v.x] } },
           y: { title: { display: ys.length === 1, text: header[ys[0]] }, beginAtZero: v.type === 'bar' },
@@ -212,6 +322,14 @@ async function tableGraph(p, t) {
     };
   };
   const draw = () => {
+    const pie = v.type === 'pie';
+    $('.trend-field', m.el).hidden = pie;
+    $('.trend-opts', m.el).hidden = v.trend === 'none';
+    $('.poly-ord', m.el).style.display = v.trend === 'poly' ? '' : 'none';
+    $('[data-ordv]', m.el).textContent = v.order;
+    const tr = trends();
+    $('.trend-out', m.el).innerHTML = tr.map(t => `<div style="color:${CHART_COLORS[t.k % 8]}"><b>${esc(header[t.c])}</b>: ${t.err ? `can't fit (${esc(t.err)})` : `${esc(t.eq)} &nbsp; R² = ${t.r2.toFixed(4)}`}</div>`).join('') +
+      (tr.length && !xNumeric() ? `<small class="hint">The x column isn't numbers, so x = 1, 2, 3… like Excel.</small>` : '');
     chart?.destroy();
     if (!v.ys.length) { const c = $('.graph-prev', m.el); c.getContext('2d').clearRect(0, 0, c.width, c.height); return; }
     chart = new window.Chart($('.graph-prev', m.el), cfg(2));
@@ -222,6 +340,9 @@ async function tableGraph(p, t) {
     const i = +b.dataset.y; v.ys = v.ys.includes(i) ? v.ys.filter(x => x !== i) : [...v.ys, i].sort((a, b) => a - b);
     b.classList.toggle('on', v.ys.includes(i)); draw();
   });
+  m.el.addEventListener('click', e => { const o = e.target.closest('[data-ord]'); if (o) { v.order = clamp(v.order + +o.dataset.ord, 2, 6); draw(); } });
+  $('[data-eq]', m.el).onchange = e => { v.eq = e.target.checked; draw(); };
+  $('[data-r2]', m.el).onchange = e => { v.r2 = e.target.checked; draw(); };
   $('[name=title]', m.el).addEventListener('input', e => { v.title = e.target.value.trim(); draw(); });
   $('[name=title]', m.el).addEventListener('keydown', e => e.stopPropagation());
   $('[data-ok]', m.el).onclick = guard(async () => {

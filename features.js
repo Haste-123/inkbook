@@ -341,12 +341,12 @@ const backHead = title => `<div class="pop-back"><button class="icon-btn" data-b
 function moreRoot(box) {
   const i = currentIndex(), p = E.pages[i], { lesson, topic } = secAt(i), sec = topic || lesson;
   box.innerHTML = `<div class="more-head"><b>${esc(E.nb.title)}</b><span>Page ${i + 1} of ${E.pages.length}${sec ? ' · ' + esc(sec.title) : ''}</span></div>
-    <div class="tile-sec">Insert</div><div class="tiles">${tile('table', 'table', 'Table')}${tile('img', 'image', 'Image')}${tile('photos', 'photos', 'Photo pages')}${tile('doc', 'file', 'PDF / Word')}${E.clip ? tile('paste', 'paste', 'Paste') : ''}</div>
+    <div class="tile-sec">Insert</div><div class="tiles">${tile('table', 'table', 'Table')}${tile('stk', 'sticker', 'Stickers')}${tile('lay', 'layout', 'Page layout')}${tile('img', 'image', 'Image')}${tile('photos', 'photos', 'Photo pages')}${tile('doc', 'file', 'PDF / Word')}${E.clip ? tile('paste', 'paste', 'Paste') : ''}</div>
     <div class="tile-sec">This page</div><div class="tiles">${tile('tpl', 'tpl', 'Template')}${tile('size', 'size', 'Size')}${tile('paper', 'palette', 'Paper')}${tile('bm', 'bookmark', p.bookmark ? 'Bookmarked' : 'Bookmark', p.bookmark ? 'on' : '')}
       ${tile('dup', 'copy', 'Duplicate')}${tile('png', 'export', 'Save image')}${tile('selall', 'selall', 'Select all')}${tile('del', 'trash', 'Delete', 'danger')}</div>
     <div class="tile-sec">Notebook</div><div class="tiles">${tile('sec', 'layers', 'Lesson / topic')}${tile('saved', 'star', 'Saved items')}${tile('cover', 'palette', 'Cover')}${tile('rename', 'edit', 'Rename')}
       ${tile('pdf', 'export', 'Export PDF')}${tile('docx', 'file', 'Export Word')}</div>
-    <div class="tile-sec">Study tools</div><div class="tiles">${tile('find', 'search', 'Find')}${tile('ask', 'sparkle', 'Ask Claude', 'claude')}${tile('calc', 'calc', 'Calculator')}${tile('laser', 'laser', 'Laser')}${tile('help', 'help', 'Help')}</div>`;
+    <div class="tile-sec">Study tools</div><div class="tiles">${tile('find', 'search', 'Find')}${tile('ask', 'sparkle', 'Ask Claude', 'claude')}${tile('calc', 'calc', 'Calculator')}${tile('recs', 'mic', 'Recordings')}${tile('split', 'split', REF.nb ? 'Close split' : 'Split view', REF.nb ? 'on' : '')}${tile('laser', 'laser', 'Laser')}${tile('help', 'help', 'Help')}</div>`;
   box.onclick = guard(async e => { const t = e.target.closest('[data-m]'); if (t) await moreAction(t.dataset.m, box); });
 }
 function rePlace() { placePopover($('#moreBtn')); }
@@ -368,7 +368,8 @@ async function moreAction(k, box) {
     pdf: async () => { await flush(); await exportPDF(E.nb, E.pages); }, docx: async () => { await flush(); await exportDocx(E.nb, E.pages); },
     ask: () => { const r = visibleBox(p); return askClaude(p, r); },
     find: () => openFind(),
-    table: () => insertTableFlow(),
+    table: () => insertTableFlow(), stk: () => stickersFlow(), lay: () => layoutsFlow(), recs: () => recordingsFlow(),
+    split: () => REF.nb ? closeSplit() : openSplit(),
     laser: () => { setTool('laser'); toast('Laser pointer on: tap the pen to go back', 2200); }, help: () => openHelp(),
   }[k];
   if (act) await act();
