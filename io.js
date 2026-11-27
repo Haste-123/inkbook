@@ -280,7 +280,7 @@ async function converterFlow() {
 const blobToDataURL = b => new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); });
 async function exportBackup() {
   showProgress('Creating backup…'); await flush();
-  const keys = await db.keys('blobs'), blobs = {};
+  const keys = (await db.keys('blobs')).filter(k => !String(k).startsWith('sync:')), blobs = {};   // sync bookkeeping belongs to this device only
   for (const [i, k] of keys.entries()) { setProgress(`Packing file ${i + 1} of ${keys.length}`, i / keys.length); blobs[k] = await blobToDataURL(await db.get('blobs', k)); }
   const data = { app: 'inkbook', version: 2, date: Date.now(), folders: await db.all('folders'), notebooks: await db.all('notebooks'), pages: await db.all('pages'), blobs };
   closeProgress();
@@ -291,7 +291,7 @@ async function importBackup(file) {
   showProgress('Restoring backup…');
   const data = JSON.parse(await f.text());
   if (data.app !== 'inkbook') throw new Error('That file is not an Inkbook backup.');
-  const blobs = Object.entries(data.blobs || {});
+  const blobs = Object.entries(data.blobs || {}).filter(([k]) => !k.startsWith('sync:'));
   for (const [i, [k, u]] of blobs.entries()) { setProgress(`File ${i + 1} of ${blobs.length}`, i / blobs.length); await db.put('blobs', await (await fetch(u)).blob(), k); }
   for (const x of data.folders || []) await db.put('folders', x);
   for (const p of data.pages || []) await db.put('pages', p);
@@ -354,6 +354,12 @@ const HELP = [
     <p class="hint">Word documents are converted by laying out their text and images; complex layouts may shift slightly. PDF → Word puts each page into Word as a picture.</p>`],
   ['Backup & offline', `
     <p>Everything works offline and stays <b>on this iPad only</b>. Settings → <b>Back up everything</b> makes one file. Save it to iCloud Drive now and then. Restore it any time, or on a new iPad.</p>`],
+  ['Sync between devices', `
+    <ul><li>Tap the <b>cloud</b> (top right of the library) to set it up. Your notes go to a <b>private</b> GitHub repository that only you can see, and every device connected to it stays up to date. It's free.</li>
+    <li>It syncs by itself: when you open Inkbook, a few seconds after you change something, when you leave a notebook and when you switch apps. Tap the cloud → <b>Sync now</b> any time.</li>
+    <li>To add your iPhone: cloud → <b>Set up another device</b> → <b>Copy setup code</b>, then on the iPhone: cloud → <b>I have a setup code</b>.</li>
+    <li>If the same page was changed on two devices before they synced, the device that syncs it last keeps its version.</li></ul>
+    <p class="hint">The cloud turns green with a tick when everything is synced, spins while syncing, and shows ! if something needs your attention.</p>`],
   ['Reminders', `
     <ul><li>Tap the <b>bell</b> (top right, in the library and in every notebook) to open Reminders from anywhere.</li>
     <li>Just type, e.g. <i>Lab report due fri 5pm</i> or <i>Quiz 27th</i>: the date and time are picked up for you, and the subject too if you mention it. Or tap Today, Tomorrow, a weekday, or pick a date.</li>
@@ -401,7 +407,7 @@ function openHelp(topic = 0) {
 
 // ---------- Start ----------
 boot().then(() => {
-  bootFind(); bootOrganize(); bootPlus(); bootReminders();
+  bootFind(); bootOrganize(); bootPlus(); bootReminders(); bootSync();
   $('#helpSide')?.addEventListener('click', () => openHelp());
   document.addEventListener('keydown', e => { if (e.key === '?' && !e.target.closest?.('[contenteditable], input, textarea')) openHelp(); });
   if (!localStorage.getItem('inkbook.seenHelp2')) { try { localStorage.setItem('inkbook.seenHelp2', '1'); } catch { } toast('New: folders, lessons, images, shapes, saved questions, import & convert. Tap Help in the sidebar for a tour.', 6000); }

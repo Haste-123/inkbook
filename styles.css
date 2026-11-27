@@ -1073,3 +1073,16 @@ input[type=date], input[type=time] { width: 100%; box-sizing: border-box; }
 .subj-card.sc-new b { color: var(--text); font-size: 15px; }
 .subj-card.sc-new span { font-size: 12.5px; }
 .rem-empty .btn { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; }
+
+/* v19 sync */
+.sync-btn { position: relative; }
+.sync-btn[data-state="ok"] { color: #30a46c; }
+.sync-btn[data-state="off"] { color: var(--muted); }
+.sync-btn[data-state="error"] { color: #e5484d; }
+.sync-btn[data-state="offline"] { color: var(--muted); opacity: .6; }
+.sync-btn[data-state="syncing"] svg.i { animation: syspin 1s linear infinite; }
+@keyframes syspin { to { transform: rotate(360deg); } }
+.sync-bang { position: absolute; top: 2px; right: 2px; width: 15px; height: 15px; border-radius: 50%; background: #e5484d; color: #fff; font: 800 11px/15px -apple-system, system-ui, sans-serif; font-style: normal; text-align: center; }
+#syncSide small { margin-left: auto; font-size: 12px; color: var(--muted); }
+#syncSide { display: flex; align-items: center; }
+.sy-mode { margin: 4px 0 6px; }
