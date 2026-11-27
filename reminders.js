@@ -109,6 +109,7 @@ function openReminders() {
       <div class="rem-row"><span class="rem-lbl">When</span><div class="rem-chips" data-when></div></div>
       <div class="rem-row"><span class="rem-lbl">Subject</span><div class="rem-chips" data-subj></div></div>
     </div>
+    <div class="rem-view"><div class="pl-seg small" data-rgroup><button data-v="date">${icon('calendar')}By date</button><button data-v="subject">${icon('folder')}By subject</button></div></div>
     <div class="rem-body" data-body></div>
     <div class="rem-foot"><button class="btn small" data-paste>${icon('list')}Paste a list</button><button class="btn small" data-cal></button><button class="btn small" data-planner>Planner</button></div>`, 'rem');
   REM = { m };
@@ -140,14 +141,11 @@ function openReminders() {
   };
   const drawList = flash => {
     const open = PLAN.tasks.filter(t => !t.done);
-    const groups = [['Overdue', t => isLate(t)], ['Today', t => !isLate(t) && daysTo(t.due) === 0], ['Tomorrow', t => daysTo(t.due) === 1],
-      ['This week', t => daysTo(t.due) > 1 && daysTo(t.due) <= 7], ['Later', t => daysTo(t.due) > 7], ['No date', t => !t.due]];
     const ex = PLAN.exams.filter(x => { const d = daysTo(x.date); return d >= 0 && d <= 60; }).sort((a, b) => a.date.localeCompare(b.date));
     const done = PLAN.tasks.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0)).slice(0, 15);
-    const byDue = (a, b) => (a.due ? dueAt(a) : Infinity) - (b.due ? dueAt(b) : Infinity);
     $('[data-body]', el).innerHTML =
       (ex.length ? `<div class="rem-exams">${ex.map(x => { const d = daysTo(x.date); return `<button class="rem-exam" data-exam="${x.id}" style="--c:${esc(subjColor(x.folderId))}"><b>${d === 0 ? 'Today' : d + (d === 1 ? ' day' : ' days')}</b><span>${esc(x.title)}</span></button>`; }).join('')}</div>` : '') +
-      (open.length ? groups.map(([g, fn]) => { const l = open.filter(t => (g === 'No date' || t.due) && fn(t)).sort(byDue); return l.length ? `<div class="tg-head${g === 'Overdue' ? ' late' : ''}">${g} · ${l.length}</div><div class="task-list">${l.map(t => remRow(t)).join('')}</div>` : ''; }).join('')
+      (open.length ? (S.planGroup === 'subject' ? subjectGroupsHtml(open) : dateGroupsHtml(open))
         : `<div class="rem-empty">${icon('bell')}<b>Nothing to remember</b><span>Type above and press Add. Words like <i>today</i>, <i>fri</i>, <i>27th</i>, <i>5pm</i> set the date for you.</span></div>`) +
       (done.length ? `<details class="task-group"><summary class="tg-head">Done · ${done.length}</summary><div class="task-list">${done.map(t => remRow(t)).join('')}</div></details>` : '');
     if (flash) { const r = $(`[data-task="${flash}"]`, el); r?.classList.add('flash'); r?.scrollIntoView({ block: 'nearest' }); }
@@ -177,6 +175,7 @@ function openReminders() {
   el.addEventListener('click', guard(async e => {
     const q = s => e.target.closest(s);
     if (q('[data-keep]')) { st.keep = true; drawAdd(); return; }
+    if (q('[data-rgroup] [data-v]')) { S.planGroup = q('[data-v]').dataset.v; saveSettings(); $$('[data-rgroup] [data-v]', el).forEach(b => b.classList.toggle('on', b.dataset.v === S.planGroup)); drawList(); return; }
     if (q('[data-due]')) { st.due = q('[data-due]').dataset.due; if (!st.due) st.time = ''; drawAdd(); return; }
     if (q('[data-notime]')) { st.time = ''; drawAdd(); return; }
     if (q('[data-f]')) { st.f = q('[data-f]').dataset.f; drawAdd(); return; }
@@ -198,6 +197,7 @@ function openReminders() {
   (async () => {
     if (!FOLDERS.length) FOLDERS = await db.all('folders');
     await loadPlan(); drawAlert(); drawAdd(); drawList(); REM.drawCal();
+    $$('[data-rgroup] [data-v]', el).forEach(b => b.classList.toggle('on', b.dataset.v === (S.planGroup === 'subject' ? 'subject' : 'date')));
     if (matchMedia('(hover: hover)').matches) inp.focus();
   })();
 }
@@ -495,6 +495,125 @@ function calSubscribeStep(first = false) {
     <div class="modal-actions" style="margin-top:8px"><button class="btn" data-close>Done</button></div>`, 'small');
   $('[data-copy]', m.el).onclick = async () => { try { await navigator.clipboard.writeText(feed); toast('Link copied. In Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar, paste it.', 6000); } catch { promptText('Calendar link', feed); } };
 }
+
+
+// =====================================================================
+// Planner v2: summary at the top, quick add, group By date or By subject,
+// filter by subject, subject cards with progress and next exam.
+// =====================================================================
+if (S.planGroup === undefined) S.planGroup = 'date';
+if (S.planShowDone === undefined) S.planShowDone = false;
+let planFilter = '';                                   // '' = everything, else a subject key
+const subjKey = t => t.folderId && folderById(t.folderId) ? t.folderId : t.tag ? 'tag:' + t.tag : 'general';
+const examKey = x => x.folderId && folderById(x.folderId) ? x.folderId : 'general';
+function subjInfo(key) {
+  if (key === 'general') return { key, name: 'General', color: '#8a8f98', folderId: null };
+  if (key.startsWith('tag:')) { const n = key.slice(4); return { key, name: n, color: tagColor(n), folderId: null, tag: n }; }
+  const f = folderById(key); return { key, name: f?.name || 'Subject', color: f?.color || S.accent, folderId: key };
+}
+const byDue = (a, b) => (a.due ? dueAt(a) : Infinity) - (b.due ? dueAt(b) : Infinity) || (a.text || '').localeCompare(b.text || '');
+const DATE_GROUPS = [['Overdue', t => isLate(t)], ['Today', t => !isLate(t) && daysTo(t.due) === 0], ['Tomorrow', t => daysTo(t.due) === 1],
+  ['This week', t => daysTo(t.due) > 1 && daysTo(t.due) <= 7], ['Later', t => daysTo(t.due) > 7], ['No date', t => !t.due]];
+function dateGroupsHtml(list) {
+  return DATE_GROUPS.map(([g, fn]) => { const l = list.filter(t => (g === 'No date' || t.due) && fn(t)).sort(byDue); return l.length ? `<div class="tg-head${g === 'Overdue' ? ' late' : ''}">${g} · ${l.length}</div><div class="task-list">${l.map(t => remRow(t)).join('')}</div>` : ''; }).join('');
+}
+// subjects in a stable order: folders A–Z, then list headings, then General
+function subjectKeys(tasks, exams) {
+  const ks = new Set([...tasks.map(subjKey), ...exams.map(examKey)]);
+  const rank = k => k === 'general' ? 2 : k.startsWith('tag:') ? 1 : 0;
+  return [...ks].sort((a, b) => rank(a) - rank(b) || subjInfo(a).name.localeCompare(subjInfo(b).name));
+}
+function subjectGroupsHtml(list) {      // compact version for the Reminders panel
+  return subjectKeys(list, []).map(k => { const s = subjInfo(k), l = list.filter(t => subjKey(t) === k).sort(byDue);
+    return `<div class="tg-head sg-head" style="--c:${esc(s.color)}"><i></i>${esc(s.name)} · ${l.length}</div><div class="task-list">${l.map(t => remRow(t, false)).join('')}</div>`; }).join('');
+}
+
+renderPlanner = async function (box) {
+  await loadPlan(); updatePlannerCount();
+  if (!FOLDERS.length) FOLDERS = await db.all('folders');
+  const inF = x => !planFilter || (x.text !== undefined ? subjKey(x) : examKey(x)) === planFilter;
+  const all = PLAN.tasks, open = all.filter(t => !t.done);
+  const exams = [...PLAN.exams].sort((a, b) => a.date.localeCompare(b.date)), upEx = exams.filter(x => daysTo(x.date) >= 0);
+  const late = open.filter(isLate).length, today = open.filter(t => t.due && !isLate(t) && daysTo(t.due) === 0).length;
+  const week = open.filter(t => t.due && daysTo(t.due) >= 1 && daysTo(t.due) <= 7).length, nx = upEx[0];
+  const stat = (n, label, c, f) => `<button class="pl-stat${n ? '' : ' zero'}" style="--c:${c}" ${f ? `data-jump="${f}"` : ''}><b>${n}</b><span>${label}</span></button>`;
+  const keys = subjectKeys(all.filter(t => !t.done || S.planShowDone), upEx);
+  if (planFilter && !keys.includes(planFilter)) keys.push(planFilter);
+  const fTasks = all.filter(t => inF(t) && (!t.done || S.planShowDone)), fOpen = fTasks.filter(t => !t.done), fDone = fTasks.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+  const fEx = upEx.filter(inF), pastEx = exams.filter(x => daysTo(x.date) < 0 && inF(x)).reverse();
+
+  let tasksHtml;
+  if (S.planGroup === 'subject') {
+    const ks = planFilter ? [planFilter] : keys;
+    tasksHtml = ks.length ? `<div class="subj-grid">${ks.map(k => {
+      const s = subjInfo(k), ts = all.filter(t => subjKey(t) === k), op = ts.filter(t => !t.done).sort(byDue), dn = ts.filter(t => t.done);
+      const recent = dn.filter(t => Date.now() - (t.doneAt || 0) < 30 * 864e5).length, total = op.length + recent, pct = total ? Math.round(recent / total * 100) : 0;
+      const ex = upEx.find(x => examKey(x) === k), lateN = op.filter(isLate).length;
+      return `<section class="subj-card" style="--c:${esc(s.color)}">
+        <div class="sc-head"><i class="sc-dot"></i><b>${esc(s.name)}</b>${lateN ? `<span class="sc-late">${lateN} overdue</span>` : ''}<button class="icon-btn sc-add" data-sadd="${esc(k)}" title="Add a task for ${esc(s.name)}">${icon('plus')}</button></div>
+        <div class="sc-meta"><span>${op.length ? `${op.length} to do` : 'Nothing to do'}${recent ? ` · ${recent} done` : ''}</span>${ex ? `<button class="sc-exam" data-exam="${ex.id}">📚 ${esc(ex.title)} · ${daysTo(ex.date) === 0 ? 'today' : daysTo(ex.date) + 'd'}</button>` : ''}</div>
+        ${total ? `<div class="sc-prog"><i style="width:${pct}%"></i></div>` : ''}
+        ${op.length ? `<div class="task-list">${op.map(t => remRow(t, false)).join('')}</div>` : `<div class="sc-empty">${recent ? 'All done 🎉' : 'No tasks yet. Tap + to add one.'}</div>`}
+        ${S.planShowDone && dn.length ? `<div class="task-list sc-done">${dn.sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0)).slice(0, 10).map(t => remRow(t, false)).join('')}</div>` : ''}
+      </section>`; }).join('')}</div>` : '';
+  } else {
+    tasksHtml = dateGroupsHtml(fOpen) + (S.planShowDone && fDone.length ? `<div class="tg-head">Done · ${fDone.length}</div><div class="task-list">${fDone.slice(0, 40).map(t => remRow(t)).join('')}</div>` : '');
+  }
+  const emptyTasks = !fOpen.length && !(S.planGroup === 'subject' && keys.length && !planFilter);
+
+  box.innerHTML = `<div class="planner2">
+    <div class="pl-stats">${stat(late, 'Overdue', '#e5484d', 'Overdue')}${stat(today, 'Due today', '#f08c00', 'Today')}${stat(week, 'Next 7 days', S.accent)}
+      <button class="pl-stat${nx ? '' : ' zero'}" style="--c:${nx ? esc(subjColor(nx.folderId)) : '#8a8f98'}" ${nx ? `data-exam="${nx.id}"` : 'data-padd="exam"'}><b>${nx ? (daysTo(nx.date) === 0 ? 'Today' : daysTo(nx.date)) : '–'}</b><span>${nx ? (daysTo(nx.date) === 0 ? '' : 'days to ') + esc(nx.title) : 'No exams yet'}</span></button></div>
+    <div class="pl-add"><span class="pl-add-ic">${icon('plus')}</span><input type="text" data-qadd placeholder="Add a task… e.g. Lab report due fri 5pm" enterkeyhint="done" autocomplete="off"><button class="btn primary small" data-qgo>Add</button></div>
+    <div class="pl-qhint" data-qhint hidden></div>
+    <div class="pl-bar">
+      <div class="pl-seg" data-group><button class="${S.planGroup !== 'subject' ? 'on' : ''}" data-v="date">${icon('calendar')}By date</button><button class="${S.planGroup === 'subject' ? 'on' : ''}" data-v="subject">${icon('folder')}By subject</button></div>
+      <label class="pl-done"><input type="checkbox" data-showdone ${S.planShowDone ? 'checked' : ''}><span>Show done</span></label>
+    </div>
+    ${keys.length > 1 || planFilter ? `<div class="rem-chips pl-filter"><button class="chip${!planFilter ? ' on' : ''}" data-filt="">All subjects</button>${keys.map(k => { const s = subjInfo(k), n = open.filter(t => subjKey(t) === k).length; return `<button class="chip${planFilter === k ? ' on' : ''}" data-filt="${esc(k)}" style="--c:${esc(s.color)}"><i class="sdot"></i>${esc(s.name)}${n ? `<small>${n}</small>` : ''}</button>`; }).join('')}</div>` : ''}
+    <div class="plan-head"><h3 class="lib-sec">Exams</h3><div class="plan-btns"><button class="btn small" data-padd="exam">${icon('plus')}Exam</button></div></div>
+    ${fEx.length ? `<div class="exam-row">${fEx.map(examCard).join('')}</div>` : `<div class="pl-none">No upcoming exams${planFilter ? ' for ' + esc(subjInfo(planFilter).name) : ''}. Add one for a countdown and a study plan.</div>`}
+    <div class="plan-head"><h3 class="lib-sec">Tasks</h3>${S.planShowDone && all.some(t => t.done) ? `<div class="plan-btns"><button class="btn small" data-cleardone>Clear done</button></div>` : ''}</div>
+    ${emptyTasks ? `<div class="rem-empty">${icon('bell')}<b>${planFilter ? 'Nothing to do for ' + esc(subjInfo(planFilter).name) : 'Nothing to do'}</b><span>Type above to add a task. Words like <i>today</i>, <i>fri</i>, <i>27th</i>, <i>5pm</i> set the date. Mention a subject's name to file it there.</span></div>` : tasksHtml}
+    ${pastEx.length ? `<details class="task-group"><summary class="tg-head">Past exams · ${pastEx.length}</summary><div class="exam-row">${pastEx.map(examCard).join('')}</div></details>` : ''}
+  </div>`;
+
+  const root = $('.planner2', box), again = () => renderPlanner(box);
+  const q = $('[data-qadd]', root), hint = $('[data-qhint]', root);
+  const qSubj = () => folderInText(q.value)?.id ?? (planFilter && !planFilter.startsWith('tag:') && planFilter !== 'general' ? planFilter : null);
+  q.addEventListener('input', () => {
+    const p = parseWhen(q.value), f = qSubj(); hint.hidden = !q.value.trim();
+    hint.innerHTML = `${p.due ? `<b>📅 ${esc(dueLabel(p))}</b>` : '<span>No date</span>'}<b style="--c:${esc(f ? subjColor(f) : planFilter.startsWith('tag:') ? tagColor(planFilter.slice(4)) : '#8a8f98')}" class="qh-subj"><i class="sdot"></i>${esc(f ? subjName(f) : planFilter.startsWith('tag:') ? planFilter.slice(4) : 'General')}</b>`;
+  });
+  const qAdd = guard(async () => {
+    const raw = q.value.trim(); if (!raw) { q.focus(); return; }
+    const p = parseWhen(raw), f = qSubj();
+    await loadPlan(); PLAN.tasks.push({ id: uid(), text: p.text, folderId: f, ...(!f && planFilter.startsWith('tag:') ? { tag: planFilter.slice(4) } : {}), due: p.due, time: p.due ? p.time : '', done: false });
+    await savePlan(); toast(`✓ Added${p.due ? ' · ' + dueLabel(p) : ''}`, 1200); remCheck();
+    await again(); const nq = $('.planner2 [data-qadd]', box); if (matchMedia('(hover: hover)').matches) nq?.focus();
+  });
+  q.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); qAdd(); } });
+  $('[data-qgo]', root).onclick = qAdd;
+  $('[data-showdone]', root).onchange = e => { S.planShowDone = e.target.checked; saveSettings(); again(); };
+  root.addEventListener('click', guard(async e => {
+    const c = s => e.target.closest(s);
+    if (c('[data-group] [data-v]')) { S.planGroup = c('[data-v]').dataset.v; saveSettings(); return again(); }
+    if (c('[data-filt]')) { planFilter = c('[data-filt]').dataset.filt; return again(); }
+    if (c('[data-jump]')) { planFilter = ''; S.planGroup = 'date'; saveSettings(); await again(); [...$$('.tg-head', box)].find(h => h.textContent.startsWith(c('[data-jump]')?.dataset.jump || '§'))?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    if (c('[data-cleardone]')) { const n = PLAN.tasks.filter(t => t.done).length; if (await confirmBox(`Remove ${n} finished task${n > 1 ? 's' : ''}?`, 'Clear')) { await loadPlan(); PLAN.tasks = PLAN.tasks.filter(t => !t.done); await savePlan(); again(); } return; }
+    if (c('[data-sadd]')) { const k = c('[data-sadd]').dataset.sadd; if (k.startsWith('tag:') || k === 'general') { planFilter = k; await again(); $('.planner2 [data-qadd]', box)?.focus(); return; } if (await remForm(null, k)) { again(); remCheck(); } return; }
+    if (c('[data-padd]')) { if (await examForm(null, planFilter && !planFilter.includes(':') && planFilter !== 'general' ? planFilter : null)) again(); return; }
+    const ex = c('[data-exam]'); if (ex) { const x = PLAN.exams.find(y => y.id === ex.dataset.exam); if (x && await examMenu(x)) again(); return; }
+    const row = c('[data-task]'); if (!row) return;
+    await loadPlan(); const t = PLAN.tasks.find(x => x.id === row.dataset.task); if (!t) return;
+    if (c('[data-tick]')) {
+      t.done = !t.done; t.doneAt = Date.now(); await savePlan(); remBadges();
+      if (t.done) { row.classList.add('done'); $('.tk-box', row).textContent = '✓'; toast('✓ Nice work', 900); setTimeout(again, 450); } else again();
+      return;
+    }
+    if (await remForm(t)) { again(); remCheck(); }
+  }));
+};
 
 // ---------- boot ----------
 function bootReminders() {
