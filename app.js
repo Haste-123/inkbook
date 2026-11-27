@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '20';
+const APP_VERSION = '21';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -1059,7 +1059,7 @@ function selScreenRect() {
 }
 
 // ---------- Undo ----------
-const snap = p => ({ strokes: p.strokes.slice(), texts: p.texts.slice(), images: p.images.slice(), tables: (p.tables || []).map(t => structuredClone(t)), links: (p.links || []).map(l => ({ ...l })) });
+const snap = p => ({ strokes: p.strokes.slice(), texts: p.texts.slice(), images: p.images.slice(), tables: (p.tables || []).map(t => structuredClone(t)), links: (p.links || []).map(l => ({ ...l })), geo: { w: p.w, h: p.h, bgX: p.bgX, bgY: p.bgY, bgW: p.bgW, bgH: p.bgH } });
 function pushUndo(p, before) {
   E.undo.push({ id: p.id, before, after: snap(p) }); if (E.undo.length > 300) E.undo.shift();
   E.redo = []; markDirty(p); updateUndoBtns();
@@ -1070,7 +1070,10 @@ function applyHist(from, to, key) {
   p.strokes = u[key].strokes.slice(); p.texts = u[key].texts.slice(); p.images = u[key].images.slice();
   if (u[key].tables) p.tables = u[key].tables.map(t => structuredClone(t));
   if (u[key].links) p.links = u[key].links.map(l => ({ ...l }));
+  const g = u[key].geo, resized = g && (g.w !== p.w || g.h !== p.h);
+  if (g) Object.assign(p, g);
   to.push(u); refreshPage(p); markDirty(p); updateUndoBtns();
+  if (resized) { layout(); toast(`↶ Page size ${p.w} × ${p.h}`, 900); }
 }
 const undo = () => applyHist(E.undo, E.redo, 'before');
 const redo = () => applyHist(E.redo, E.undo, 'after');
@@ -1805,7 +1808,7 @@ function onGrowDown(e) {
   try { g.setPointerCapture(e.pointerId); } catch { }
   g.classList.add('dragging'); clearSelection();
   if (p.bgKey) { p.bgW ||= p.w; p.bgH ||= p.h; }   // a PDF/photo background keeps its own size
-  const sx = e.clientX, sy = e.clientY, w0 = p.w, h0 = p.h, snap10 = v => Math.round(v / 10) * 10;
+  const sx = e.clientX, sy = e.clientY, w0 = p.w, h0 = p.h, snap10 = v => Math.round(v / 10) * 10, before = snap(p);
   let shiftX = 0, shiftY = 0;                          // growing up/left moves the content so it stays where it is
   const lbl = document.createElement('div'); lbl.className = 'grow-size'; el.appendChild(lbl);
   const mv = ev => {
@@ -1823,8 +1826,9 @@ function onGrowDown(e) {
     try { g.releasePointerCapture(e.pointerId); } catch { }
     g.classList.remove('dragging'); lbl.remove();
     g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); g.removeEventListener('pointercancel', up);
-    if (shiftX || shiftY) { E.undo = E.undo.filter(u => u.id !== p.id); E.redo = E.redo.filter(u => u.id !== p.id); updateUndoBtns(); saveNb(); }
-    markDirty(p); layout();
+    if (p.w !== w0 || p.h !== h0) pushUndo(p, before); else markDirty(p);   // resizing can be undone like any other change
+    if (shiftX || shiftY) saveNb();
+    layout();
   };
   g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up);
 }

@@ -1,6 +1,6 @@
 /* Offline support: caches the app + libraries so it works with no internet. */
-const VERSION = 'inkbook-v20';
-const CORE = ['./', './index.html', './styles.css', './app.js', './features.js', './extras.js', './organize.js', './typeset.js', './tables.js', './plus.js', './reminders.js', './declick.js', './sync.js', './io.js', './manifest.json',
+const VERSION = 'inkbook-v21';
+const CORE = ['./', './index.html', './styles.css', './app.js', './features.js', './extras.js', './organize.js', './typeset.js', './tables.js', './plus.js', './reminders.js', './declick.js', './sync.js', './history.js', './phone.js', './io.js', './manifest.json',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 const LIBS = [
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',

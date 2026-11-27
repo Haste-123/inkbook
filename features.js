@@ -340,14 +340,39 @@ const tile = (k, ic, l, cls = '') => `<button class="tile ${cls}" data-m="${k}">
 const backHead = title => `<div class="pop-back"><button class="icon-btn" data-back>${icon('back')}</button><b>${title}</b></div>`;
 function moreRoot(box) {
   const i = currentIndex(), p = E.pages[i], { lesson, topic } = secAt(i), sec = topic || lesson;
-  box.innerHTML = `<div class="more-head"><b>${esc(E.nb.title)}</b><span>Page ${i + 1} of ${E.pages.length}${sec ? ' · ' + esc(sec.title) : ''}</span></div>
-    <div class="tile-sec">Insert</div><div class="tiles">${tile('table', 'table', 'Table')}${tile('stk', 'sticker', 'Stickers')}${tile('lay', 'layout', 'Page layout')}${tile('img', 'image', 'Image')}${tile('photos', 'photos', 'Photo pages')}${tile('doc', 'file', 'PDF / Word')}${E.clip ? tile('paste', 'paste', 'Paste') : ''}</div>
-    <div class="tile-sec">This page</div><div class="tiles">${tile('tpl', 'tpl', 'Template')}${tile('size', 'size', 'Size')}${tile('paper', 'palette', 'Paper')}${tile('addp', 'addpage', 'Add page')}${tile('bm', 'bookmark', p.bookmark ? 'Bookmarked' : 'Bookmark', p.bookmark ? 'on' : '')}${tile('pencil', 'hand', 'Pencil only', S.pencilOnly ? 'on' : '')}
-      ${tile('dup', 'copy', 'Duplicate')}${tile('png', 'export', 'Save image')}${tile('selall', 'selall', 'Select all')}${tile('del', 'trash', 'Delete', 'danger')}</div>
-    <div class="tile-sec">Notebook</div><div class="tiles">${tile('sec', 'layers', 'Lesson / topic')}${tile('saved', 'star', 'Saved items')}${tile('cover', 'palette', 'Cover')}${tile('rename', 'edit', 'Rename')}
-      ${tile('pdf', 'export', 'Export PDF')}${tile('docx', 'file', 'Export Word')}</div>
-    <div class="tile-sec">Study tools</div><div class="tiles">${tile('find', 'search', 'Find')}${tile('ask', 'sparkle', 'Ask Claude', 'claude')}${tile('calc', 'calc', 'Calculator')}${tile('rem', 'bell', 'Reminders')}${tile('recs', 'mic', 'Recordings')}${tile('split', 'split', REF.nb ? 'Close split' : 'Split view', REF.nb ? 'on' : '')}${tile('laser', 'laser', 'Laser')}${tile('help', 'help', 'Help')}</div>`;
-  box.onclick = guard(async e => { const t = e.target.closest('[data-m]'); if (t) await moreAction(t.dataset.m, box); });
+  const row = (k, ic, title, hint, cls = '') => `<button class="mm-row ${cls}" data-m="${k}"><span class="mm-ic">${icon(ic)}</span><span class="mm-t"><b>${title}</b>${hint ? `<small>${hint}</small>` : ''}</span></button>`;
+  const TABS = {
+    insert: ['Insert', 'plus', () =>
+      row('table', 'table', 'Table', 'Rows and columns, with graphs') + row('img', 'image', 'Image', 'A picture on this page') +
+      row('stk', 'sticker', 'Stickers', 'Labels, symbols and your own') + row('lay', 'layout', 'Page layout', 'Cornell, lab report, to-do…') +
+      row('photos', 'photos', 'Photo pages', 'Each photo becomes a new page') + row('doc', 'file', 'PDF or Word', 'Add its pages after this one') +
+      (E.clip ? row('paste', 'paste', 'Paste', 'What you copied') : '')],
+    page: ['Page', 'file', () =>
+      row('addp', 'addpage', 'Add page', 'A blank page after this one') + row('hist', 'clock', 'Page history', 'See and restore earlier versions') +
+      row('tpl', 'tpl', 'Lines & grid', 'Change this page’s paper') + row('size', 'size', 'Page size', 'A4, letter, or drag the edges') + row('paper', 'palette', 'Paper colour', '') +
+      row('bm', 'bookmark', p.bookmark ? 'Remove bookmark' : 'Bookmark', '', p.bookmark ? 'on' : '') + row('dup', 'copy', 'Duplicate page', '') +
+      row('selall', 'selall', 'Select everything', '') + row('png', 'export', 'Save as image', '') + row('del', 'trash', 'Delete page', '', 'danger')],
+    nb: ['Notebook', 'layers', () =>
+      row('sec', 'layers', 'New lesson or topic', 'Starts a section at this page') + row('saved', 'star', 'Saved items', 'Questions and highlights you saved') +
+      row('rename', 'edit', 'Rename', '') + row('cover', 'palette', 'Cover', '') + row('pdf', 'export', 'Export PDF', '') + row('docx', 'file', 'Export Word', '')],
+    study: ['Study', 'sparkle', () =>
+      row('ask', 'sparkle', 'Ask Claude', 'Explain or check what’s on screen', 'claude') + row('find', 'search', 'Find', 'Search text and handwriting') +
+      row('rem', 'bell', 'Reminders', 'Tasks and deadlines') + row('recs', 'mic', 'Recordings', 'Lectures you recorded here') +
+      row('split', 'split', REF.nb ? 'Close split view' : 'Split view', 'Another notebook side by side', REF.nb ? 'on' : '') +
+      row('calc', 'calc', 'Calculator', '') + row('pencil', 'hand', S.pencilOnly ? 'Pencil only: on' : 'Pencil only: off', 'Fingers scroll instead of drawing', S.pencilOnly ? 'on' : '') +
+      row('laser', 'laser', 'Laser pointer', 'For presenting') + row('help', 'help', 'Help', '')],
+  };
+  let tab = TABS[S.moreTab] ? S.moreTab : 'insert';
+  const draw = () => {
+    box.innerHTML = `<div class="mm-head"><b>${esc(E.nb.title)}</b><span>Page ${i + 1} of ${E.pages.length}${sec ? ' · ' + esc(sec.title) : ''}</span></div>
+      <div class="mm-tabs">${Object.entries(TABS).map(([k, [l, ic]]) => `<button class="${k === tab ? 'on' : ''}" data-tab="${k}">${icon(ic)}<span>${l}</span></button>`).join('')}</div>
+      <div class="mm-list">${TABS[tab][2]()}</div>`;
+  };
+  draw();
+  box.onclick = guard(async e => {
+    const tb = e.target.closest('[data-tab]'); if (tb) { tab = S.moreTab = tb.dataset.tab; saveSettings(); draw(); return rePlace(); }
+    const t = e.target.closest('[data-m]'); if (t) await moreAction(t.dataset.m, box);
+  });
 }
 function rePlace() { placePopover($('#moreBtn')); }
 async function moreAction(k, box) {
@@ -361,7 +386,7 @@ async function moreAction(k, box) {
   closePopover();
   const act = {
     paste: async () => { const sr = scroller.getBoundingClientRect(), er = E.els.get(p.id).getBoundingClientRect(); await pasteClip(p, { x: 60, y: clamp((sr.top + 80 - er.top) / E.unit, 20, p.h - 40) }); },
-    bm: () => toggleBookmark(i), addp: () => $('#addPageBtn').click(), pencil: () => $('#pencilBtn').click(), dup: () => duplicatePage(i), png: () => exportPagePng(i), selall: () => selectAll(), del: () => deletePage(i),
+    hist: () => pageHistoryFlow(p), bm: () => toggleBookmark(i), addp: () => $('#addPageBtn').click(), pencil: () => $('#pencilBtn').click(), dup: () => duplicatePage(i), png: () => exportPagePng(i), selall: () => selectAll(), del: () => deletePage(i),
     sec: () => addSectionFlow({ level: 1 }), saved: () => setSideTab('saved'),
     cover: async () => { await flush(); await makeThumb(E.nb, E.pages); await coverEditor(E.nb); },
     rename: () => inlineRename($('#nbTitle'), E.nb.title, async v => { E.nb.title = v; await saveNb(); }),
