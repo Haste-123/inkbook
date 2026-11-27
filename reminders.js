@@ -179,11 +179,12 @@ function makeComposer(host, { placeholder = 'Add a task… e.g. Lab report due f
       <button class="cmp-pill" data-cwhen title="Due date and time">${icon('calendar')}<span></span></button>
       <button class="cmp-pill" data-csubj title="Subject"><i class="sdot"></i><span></span>${icon('chev')}</button>
       <button class="cmp-pill" data-cnote title="Add a note">${icon('edit')}<span>Note</span></button>
+      <button class="cmp-pill" data-cphoto title="Add photos">${icon('image')}<span></span></button>
     </div>
     <textarea class="cmp-note" data-cnotetxt rows="2" placeholder="Note (optional), e.g. slides 44–47 not included" hidden></textarea>
   </div>`;
   const el = host.firstElementChild, inp = $('[data-cin]', el), note = $('[data-cnotetxt]', el);
-  const st = { auto: parseWhen(''), due: undefined, time: undefined, f: undefined };
+  const st = { auto: parseWhen(''), due: undefined, time: undefined, f: undefined, imgs: [] };
   const due = () => st.due !== undefined ? st.due : st.auto.due;
   const time = () => !due() ? '' : st.time !== undefined ? st.time : st.auto.time;
   const fkey = () => st.f !== undefined ? st.f : normKey(folderInText(inp.value)?.id ?? normKey(subj()));
@@ -194,15 +195,16 @@ function makeComposer(host, { placeholder = 'Add a task… e.g. Lab report due f
     const sb = $('[data-csubj]', el); sb.style.setProperty('--c', s.color); $('span', sb).textContent = s.name;
     sb.classList.toggle('set', !!k); sb.classList.toggle('auto', st.f === undefined && !!folderInText(inp.value));
     $('[data-cnote]', el).classList.toggle('set', !!note.value.trim());
+    const ph = $('[data-cphoto]', el); ph.classList.toggle('set', st.imgs.length > 0); $('span', ph).textContent = st.imgs.length ? `${st.imgs.length} photo${st.imgs.length > 1 ? 's' : ''}` : '';
   };
   const add = guard(async () => {
     const raw = inp.value.trim(); if (!raw) { inp.focus(); return toast('Type the task first'); }
     const k = fkey(), d = due();
     const t = { id: uid(), text: st.auto.text || raw, folderId: k && !k.startsWith('tag:') ? k : null, ...(k.startsWith('tag:') ? { tag: k.slice(4) } : {}),
-      due: d || '', time: d ? time() || '' : '', note: note.value.trim(), done: false };
+      due: d || '', time: d ? time() || '' : '', note: note.value.trim(), done: false, ...(st.imgs.length ? { imgs: [...st.imgs] } : {}) };
     await loadPlan(); PLAN.tasks.push(t); await savePlan();
     S.remLastF = t.folderId || ''; saveSettings();
-    inp.value = ''; note.value = ''; note.hidden = true;
+    inp.value = ''; note.value = ''; note.hidden = true; st.imgs = [];
     Object.assign(st, { auto: parseWhen(''), due: undefined, time: undefined });   // keep a subject you picked, for the next one
     draw(); remBadges(); remCheck();
     toast(`✓ Added${t.due ? ' · ' + dueLabel(t) : ''}`, 1300);
@@ -219,8 +221,13 @@ function makeComposer(host, { placeholder = 'Add a task… e.g. Lab report due f
     if (q('[data-cwhen]')) { const r = await whenPicker(due(), time()); if (r) { st.due = r.due; st.time = r.time; draw(); } return; }
     if (q('[data-csubj]')) { const k = await subjectPicker(fkey()); if (k !== null) { st.f = normKey(k); draw(); } return; }
     if (q('[data-cnote]')) { note.hidden = !note.hidden; if (!note.hidden) note.focus(); return; }
+    if (q('[data-cphoto]')) {
+      if (st.imgs.length && await menu('Photos', [{ label: 'Add more photos', value: 'add', icon: 'image' }, { label: 'Remove these photos', value: 'rm', icon: 'trash', danger: true }]) === 'rm') { st.imgs.forEach(k => db.del('blobs', k)); st.imgs = []; draw(); return; }
+      const files = await pickFiles('image/*', true); if (!files?.length) return;
+      st.imgs.push(...await addTaskPhotos(files)); draw(); return;
+    }
   }));
-  const act = () => el.classList.toggle('active', el.contains(document.activeElement) || !!inp.value.trim() || !note.hidden || st.due !== undefined || picking);
+  const act = () => el.classList.toggle('active', el.contains(document.activeElement) || !!inp.value.trim() || !note.hidden || st.due !== undefined || st.imgs.length > 0 || picking);
   let picking = false;
   el.addEventListener('focusin', act); el.addEventListener('focusout', () => setTimeout(act, 250));
   el.addEventListener('pointerdown', e => { if (e.target.closest('.cmp-pill')) { picking = true; setTimeout(() => { picking = false; }, 30000); } }, true);

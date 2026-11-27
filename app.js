@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '27';
+const APP_VERSION = '28';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -716,6 +716,23 @@ async function newMenu() {
 const scroller = $('#scroller'), pagesEl = $('#pages');
 const live = document.createElement('canvas'); live.className = 'live';
 const lctx = live.getContext('2d');
+const tail = document.createElement('canvas'); tail.className = 'live'; const tctx = tail.getContext('2d'); let tailBox = null;
+function clearTail() { if (tailBox) { tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(...tailBox); tailBox = null; } tail.remove(); }
+// The ink is drawn piece by piece; the last piece waits for the next point. This draws that missing bit
+// (and where the Pencil is heading, when the iPad predicts it) straight away, on a layer that is redrawn each time.
+function drawTail(host, a, s) {
+  if (tail.parentNode !== host) host.appendChild(tail);
+  if (tail.width !== live.width || tail.height !== live.height) { tail.width = live.width; tail.height = live.height; tailBox = null; }
+  tail.style.left = live.style.left; tail.style.top = live.style.top; tail.style.width = live.style.width; tail.style.height = live.style.height;
+  tctx.setTransform(1, 0, 0, 1, 0, 0); if (tailBox) tctx.clearRect(...tailBox); tailBox = null;
+  const q = a.stroke.p, n = q.length / 3; if (n < 2) return;
+  const j = (n - 1) * 3, pts = [[(q[j - 3] + q[j]) / 2, (q[j - 2] + q[j + 1]) / 2], [q[j], q[j + 1]], ...(a.pred || [])];
+  const lw = Math.max(0.6, widthAt(a.stroke, q[j + 2]) * s), ox = (host._ox || 0) * s, oy = (host._oy || 0) * s;
+  tctx.setTransform(1, 0, 0, 1, -ox, -oy); tctx.lineCap = 'round'; tctx.lineJoin = 'round'; tctx.strokeStyle = a.stroke.c; tctx.lineWidth = lw;
+  tctx.beginPath(); tctx.moveTo(pts[0][0] * s, pts[0][1] * s); for (const [x, y] of pts.slice(1)) tctx.lineTo(x * s, y * s); tctx.stroke();
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const [x, y] of pts) { x0 = Math.min(x0, x * s - ox); y0 = Math.min(y0, y * s - oy); x1 = Math.max(x1, x * s - ox); y1 = Math.max(y1, y * s - oy); }
+  const m = lw + 3; tailBox = [Math.floor(x0 - m), Math.floor(y0 - m), Math.ceil(x1 - x0 + 2 * m), Math.ceil(y1 - y0 + 2 * m)];
+}
 const E = {
   nb: null, pages: [], byId: new Map(), els: new Map(), visible: new Set(),
   tool: 'pen', color: { pen: S.pen[0], hl: S.hl[0] }, size: { pen: 1, hl: 1, eraser: 1, shape: 1, text: 1 },
@@ -889,8 +906,13 @@ function scrollToPage(i, smooth) {
   scroller.scrollTo({ top: Math.max(0, top), left: Math.max(0, left), behavior: smooth ? 'smooth' : 'auto' });
 }
 function goToBox(p, box) {
-  const el = E.els.get(p.id); if (!el) return;
-  scroller.scrollTop = el.offsetTop + box[1] * E.unit - scroller.clientHeight * 0.25;
+  let el = E.els.get(p.id); if (!el) return;
+  const pad = 24, vw = scroller.clientWidth, vh = scroller.clientHeight - 60;   // leave room for the page counter at the bottom
+  const bw = (box[2] - box[0] + pad * 2) * E.unit, bh = (box[3] - box[1] + pad * 2) * E.unit;
+  if (bw > vw || bh > vh) { const z = clamp(E.zoom * Math.min(vw / bw, vh / bh), ZMIN, ZMAX); if (z < E.zoom - 0.001) { E.zoom = z; layout(); updateZoomLabel(); el = E.els.get(p.id); } }
+  const r = el.getBoundingClientRect(), sr = scroller.getBoundingClientRect(), u = r.width / p.w;
+  scroller.scrollLeft += r.left + (box[0] + box[2]) / 2 * u - (sr.left + vw / 2);
+  scroller.scrollTop += r.top + (box[1] + box[3]) / 2 * u - (sr.top + vh / 2);
   const f = document.createElement('div'); f.className = 'flash';
   f.style.setProperty('--x', box[0] - 8); f.style.setProperty('--y', box[1] - 8);
   f.style.setProperty('--w', box[2] - box[0] + 16); f.style.setProperty('--h', box[3] - box[1] + 16);
@@ -1294,7 +1316,7 @@ function onMove(e) {
   const pt = toPt(a, e);
   if (a.mode === 'ink') {
     if (a.straight) { const s0 = a.start; a.stroke.p = [+s0.x.toFixed(1), +s0.y.toFixed(1), 0.5, +pt.x.toFixed(1), +pt.y.toFixed(1), 0.5]; }
-    else list.forEach(ev => addPoint(a, ev));
+    else { list.forEach(ev => addPoint(a, ev)); const pe = e.getPredictedEvents?.(); a.pred = pe?.length ? pe.slice(-2).map(ev => { const q = toPt(a, ev); return [q.x, q.y]; }) : null; }
     if (a.anchor && Math.hypot(pt.x - a.anchor.x, pt.y - a.anchor.y) > 3) { a.anchor = pt; armHold(a); }
   } else if (a.mode === 'snapped') { if (a.snap.kind === 'line') a.stroke.p = shapePts('line', a.snap.x0, a.snap.y0, pt.x, pt.y); }
   else if (a.mode === 'shape') { a.end = pt; a.stroke.p = shapePts(S.shape, a.start.x, a.start.y, pt.x, pt.y); }
@@ -1323,7 +1345,8 @@ function onMove(e) {
     a.k = clamp(((pt.x - b[0]) / (b[2] - b[0]) + (pt.y - b[1]) / (b[3] - b[1])) / 2, 0.1, Math.min(12, kmax));
   } else if (a.mode === 'laser') { list.forEach(ev => { const q = toPt(a, ev); laser.pts.push([q.x, q.y, performance.now(), 0]); }); a.cur = pt; }
   else return;
-  scheduleLive();
+  if (a.mode === 'ink' && a.stroke.t === 'pen' && !a.stroke.poly) drawLive();   // pen ink: draw now, not at the next frame
+  else scheduleLive();
 }
 function onUp(e) {
   const a = active; if (!a || e.pointerId !== a.id) return;
@@ -1385,7 +1408,7 @@ function drawLive() {
   liveQueued = false;
   const a = active && active.mode !== 'text' ? active : null;
   const host = (a?.mode === 'move' && a.tgtEl) || a?.pageEl || (laser.pts.length && laser.el) || (E.sel && E.els.get(E.sel.page.id)) || null;
-  if (!host || !host.isConnected) { live.remove(); return; }
+  if (!host || !host.isConnected) { live.remove(); clearTail(); return; }
   const c = host.querySelector('canvas.ink');
   let fresh = false;
   if (live.parentNode !== host) { host.appendChild(live); fresh = true; }
@@ -1401,8 +1424,10 @@ function drawLive() {
     ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = a.stroke.c;
     let i = a.drawn + 1; for (; i <= n - 2; i++) penSeg(ctx, a.stroke, s, i, n);
     ctx.restore(); a.drawn = i - 1;
+    drawTail(host, a, s);
     return;
   }
+  clearTail();
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, live.width, live.height);
   setPageTransform(ctx, host);
   if (a && (a.mode === 'ink' || a.mode === 'shape' || a.mode === 'snapped')) drawStroke(ctx, a.stroke, s, dark);

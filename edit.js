@@ -213,11 +213,26 @@ async function ungroupSel() {
   const sel = E.sel; if (!sel) return;
   const p = sel.page, before = snap(p);
   const strip = arr => arr.map(o => { if (!o.g) return o; const n = { ...o }; delete n.g; return n; });
-  const ids = new Set(); for (const set of [sel.strokes, sel.images, sel.texts, sel.tables]) for (const o of set) if (o.g) ids.add(o);
+  const ids = new Set(), gids = new Set(); for (const set of [sel.strokes, sel.images, sel.texts, sel.tables]) for (const o of set) if (o.g) { ids.add(o); gids.add(o.g); }
   p.strokes = p.strokes.map(o => ids.has(o) ? strip([o])[0] : o); p.images = p.images.map(o => ids.has(o) ? strip([o])[0] : o);
   p.texts = p.texts.map(o => ids.has(o) ? strip([o])[0] : o); p.tables = (p.tables || []).map(o => ids.has(o) ? strip([o])[0] : o);
+  const gone = E.nb.items.filter(it => gids.has(it.id)); E.nb.items = E.nb.items.filter(it => !gids.has(it.id)); await saveNb();
+  if (S.sideOpen) renderEdSide();
   clearSelection(); pushUndo(p, before); refreshPage(p);
-  toast('Ungrouped: you can select the pieces separately now. The saved item stays where it is.', 3000);
+  toast(gone.length ? `Ungrouped and removed “${gone.map(g => g.title).join('”, “')}” from Saved` : 'Ungrouped', 3000);
+}
+
+// ---------- no ghost marks from text boxes ----------
+// After a text box moves (or a page's texts are redrawn) the text layer is repainted in full once, so no
+// leftover bits of letters can stay behind. Resizing a layer by 1px makes Safari redraw all of it.
+const repaintQ = new Set(); let repaintT = 0;
+function repaintSoon(layer, ms = 140) {
+  if (!layer) return; repaintQ.add(layer); clearTimeout(repaintT);
+  repaintT = setTimeout(() => { const ls = [...repaintQ]; repaintQ.clear(); ls.forEach(l => (l.style.bottom = '-1px')); setTimeout(() => ls.forEach(l => (l.style.bottom = '')), 60); }, ms);
+}
+{
+  const _pt = positionText; positionText = function (p, t, d) { const r = _pt(p, t, d); repaintSoon(d?.parentElement); return r; };
+  const _rt = renderTexts; renderTexts = function (p, el) { const r = _rt(p, el); repaintSoon(el?.querySelector('.text-layer')); return r; };
 }
 
 function bootEdit() {
