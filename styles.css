@@ -1358,3 +1358,5 @@ body.reading .page { touch-action: pan-x pan-y; }
 .text-item { outline: calc(var(--s) * 14px) solid transparent; }
 .cmp-pill[data-cphoto]:not(.set) span { display: none; }
 .cmp-pill[data-cphoto]:not(.set) { padding: 6px 10px; }
+
+.cph-x { font-style: normal; margin-left: 6px; padding: 0 4px; border-radius: 6px; background: var(--surface-2); color: var(--muted); }

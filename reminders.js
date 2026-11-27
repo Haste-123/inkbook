@@ -195,7 +195,7 @@ function makeComposer(host, { placeholder = 'Add a task… e.g. Lab report due f
     const sb = $('[data-csubj]', el); sb.style.setProperty('--c', s.color); $('span', sb).textContent = s.name;
     sb.classList.toggle('set', !!k); sb.classList.toggle('auto', st.f === undefined && !!folderInText(inp.value));
     $('[data-cnote]', el).classList.toggle('set', !!note.value.trim());
-    const ph = $('[data-cphoto]', el); ph.classList.toggle('set', st.imgs.length > 0); $('span', ph).textContent = st.imgs.length ? `${st.imgs.length} photo${st.imgs.length > 1 ? 's' : ''}` : '';
+    const ph = $('[data-cphoto]', el); ph.classList.toggle('set', st.imgs.length > 0); $('span', ph).innerHTML = st.imgs.length ? `${st.imgs.length} photo${st.imgs.length > 1 ? 's' : ''}<i class="cph-x" data-cphrm title="Remove photos">✕</i>` : '';
   };
   const add = guard(async () => {
     const raw = inp.value.trim(); if (!raw) { inp.focus(); return toast('Type the task first'); }
@@ -221,8 +221,8 @@ function makeComposer(host, { placeholder = 'Add a task… e.g. Lab report due f
     if (q('[data-cwhen]')) { const r = await whenPicker(due(), time()); if (r) { st.due = r.due; st.time = r.time; draw(); } return; }
     if (q('[data-csubj]')) { const k = await subjectPicker(fkey()); if (k !== null) { st.f = normKey(k); draw(); } return; }
     if (q('[data-cnote]')) { note.hidden = !note.hidden; if (!note.hidden) note.focus(); return; }
+    if (q('[data-cphrm]')) { st.imgs.forEach(k => db.del('blobs', k)); st.imgs = []; draw(); return; }
     if (q('[data-cphoto]')) {
-      if (st.imgs.length && await menu('Photos', [{ label: 'Add more photos', value: 'add', icon: 'image' }, { label: 'Remove these photos', value: 'rm', icon: 'trash', danger: true }]) === 'rm') { st.imgs.forEach(k => db.del('blobs', k)); st.imgs = []; draw(); return; }
       const files = await pickFiles('image/*', true); if (!files?.length) return;
       st.imgs.push(...await addTaskPhotos(files)); draw(); return;
     }

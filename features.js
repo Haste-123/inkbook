@@ -283,7 +283,7 @@ async function renderEdSide() {
     const types = ITEM_TYPES.filter(([k]) => items.some(i => i.type === k));
     const shown = items.filter(i => savedFilter === 'all' || i.type === savedFilter);
     body.innerHTML = (items.length ? `<div class="filter-chips">${segHtml([['all', `All ${items.length}`], ...types.map(([k, l]) => [k, `${l} ${items.filter(i => i.type === k).length}`])], savedFilter)}</div>` : '') +
-      (shown.length ? shown.map(it => `<div class="sv-card" style="--c:${ITEM_MAP[it.type].color}" data-item="${it.pageId}|${it.box.join(',')}">
+      (shown.length ? shown.map(it => `<div class="sv-card" style="--c:${ITEM_MAP[it.type].color}" data-item="${it.pageId}|${it.box.join(',')}" data-iid="${esc(it.id)}">
         <canvas class="crop" width="240" height="90" data-crop="${it.pageId}|${it.box.join(',')}"></canvas>
         <div class="sv-main"><span class="sv-type">${ITEM_MAP[it.type].label}${it.auto ? ' · auto' : ''}</span><b>${esc(it.title)}</b><span class="sv-loc">p. ${it.pageNo}${it.section ? ' · ' + esc(it.section) : ''}</span></div>
         ${it.auto ? '' : `<button class="mini-more" data-imenu="${it.id}">${icon('more')}</button>`}</div>`).join('')
@@ -327,7 +327,19 @@ async function onSideClick(e) {
   const um = t.closest('[data-unmark]'); if (um) return toggleBookmark(+um.dataset.unmark);
   const pm = t.closest('[data-pm]'); if (pm) return pageMenu(+pm.dataset.pm);
   const it = t.closest('[data-item]');
-  if (it) { const [pid, box] = it.dataset.item.split('|'); closeSideIfOverlay(); return goToBox(E.byId.get(pid), box.split(',').map(Number)); }
+  if (it) {
+    let [pid, box] = it.dataset.item.split('|'); box = box.split(',').map(Number);
+    const live = E.nb.items.find(x => x.id === it.dataset.iid);                     // where it is now, not when the list was drawn
+    if (live) {
+      pid = live.pageId; box = live.box;
+      if (live.grouped && !E.pages.some(p => pageObjs(p).some(o => o.g === live.id))) {     // its content was deleted
+        if (await confirmBox(`What you saved as “${live.title}” isn’t in this notebook any more. Remove it from Saved?`, 'Remove')) { E.nb.items = E.nb.items.filter(x => x !== live); await saveNb(); renderEdSide(); }
+        return;
+      }
+    }
+    else if (it.dataset.iid?.startsWith('auto_')) { const tid = it.dataset.iid.slice(5); for (const p of E.pages) { const t = p.texts.find(x => x.id === tid); if (t) { const b = textBox(p, t); pid = p.id; box = b.map(Math.round); break; } } }
+    closeSideIfOverlay(); return goToBox(E.byId.get(pid), box);
+  }
   const go = t.closest('[data-go]'); if (go) { scrollToPage(+go.dataset.go, true); closeSideIfOverlay(); return; }
   const th = t.closest('[data-pi]'); if (th) { scrollToPage(+th.dataset.pi); closeSideIfOverlay(); }
 }

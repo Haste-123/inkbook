@@ -167,7 +167,8 @@ function refreshSavedBoxes(pages) {
     const b = groupBox(p, it.id); if (!b) continue;
     if (it.pageId !== p.id || b.join() !== it.box.join()) { it.box = b; it.pageId = p.id; changed = true; }
   }
-  if (changed) { saveNb(); if (S.sideOpen && S.sideTab === 'saved') renderEdSide(); }
+  if (changed) saveNb();
+  if (S.sideOpen && S.sideTab === 'saved') renderEdSide();                            // cards and their previews show where things are now
 }
 {
   const _fs = followSaved;
@@ -179,11 +180,13 @@ function refreshSavedBoxes(pages) {
 {
   const _sif = saveItemFlow;
   saveItemFlow = async function (p, box) {
-    const sel = E.sel, n0 = E.nb.items.length, r = await _sif(p, box);
+    const sel = E.sel, n0 = E.nb.items.length, ok = liveGroups(), r = await _sif(p, box);
     const it = E.nb.items[E.nb.items.length - 1];
     if (sel && E.nb.items.length > n0 && it) {
-      for (const set of [sel.strokes, sel.images, sel.texts, sel.tables || new Set()]) for (const o of set) o.g = it.id;
-      it.grouped = true; markDirty(p); await saveNb();
+      let kept = 0;
+      for (const set of [sel.strokes, sel.images, sel.texts, sel.tables || new Set()]) for (const o of set) { if (o.g && ok.has(o.g)) { kept++; continue; } o.g = it.id; }
+      it.grouped = true; markDirty(p); refreshSavedBoxes([p]); await saveNb();
+      if (kept) toast(`Saved. ${kept} piece${kept > 1 ? 's' : ''} already in another saved item stayed there.`, 3200);
     }
     return r;
   };
@@ -199,7 +202,8 @@ async function groupOldSaved() {
   for (const it of E.nb?.items || []) {
     if (it.grouped) continue; it.grouped = true; changed = true;
     const p = E.byId.get(it.pageId); if (!p) continue;
-    const inside = (x0, y0, x1, y1) => { const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2; return cx >= it.box[0] && cx <= it.box[2] && cy >= it.box[1] && cy <= it.box[3]; };
+    const area = (it.box[2] - it.box[0]) * (it.box[3] - it.box[1]); if (area > p.w * p.h * 0.6) continue;
+    const m = 10, inside = (x0, y0, x1, y1) => x0 >= it.box[0] - m && y0 >= it.box[1] - m && x1 <= it.box[2] + m && y1 <= it.box[3] + m;
     let n = 0;
     for (const st of p.strokes) { if (st.g) continue; const b = bbox(st); if (inside(...b)) { st.g = it.id; n++; } }
     for (const o of p.images) if (!o.g && inside(o.x, o.y, o.x + o.w, o.y + o.h)) { o.g = it.id; n++; }
