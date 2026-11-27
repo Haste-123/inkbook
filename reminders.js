@@ -100,7 +100,7 @@ function remRow(t, showSubj = true) {
   const late = isLate(t), dd = t.due ? daysTo(t.due) : null, [sn, sc] = remSubj(t);
   const cls = t.done ? ' done' : late ? ' late' : dd === 0 ? ' due-today' : dd === 1 ? ' due-soon' : '';
   return `<div class="task${cls}" data-task="${t.id}"><button class="tk-box" data-tick title="Done">${t.done ? '✓' : ''}</button>
-    <div class="tk-main"><b>${esc(t.text)}</b><span>${showSubj ? `<i style="--c:${esc(sc)}"></i>${esc(sn)}` : ''}${showSubj && t.due ? ' · ' : ''}${t.due ? `<em>${esc(dueLabel(t))}</em>` : ''}${t.note ? `<span class="tk-ni" title="Has a note">${icon('note')}</span>` : ''}</span></div></div>`;
+    <div class="tk-main"><b>${esc(t.text)}</b><span>${showSubj ? `<i style="--c:${esc(sc)}"></i>${esc(sn)}` : ''}${showSubj && t.due ? ' · ' : ''}${t.due ? `<em>${esc(dueLabel(t))}</em>` : ''}${t.note ? `<span class="tk-ni" title="Has a note">${icon('note')}</span>` : ''}${t.imgs?.length ? `<span class="tk-ni" title="${t.imgs.length} photo${t.imgs.length > 1 ? 's' : ''}">${icon('image')}</span>` : ''}</span></div></div>`;
 }
 taskRow = remRow;
 taskForm = (t, folderId) => remForm(t, folderId);
@@ -336,7 +336,15 @@ function remForm(t, folderId) {
         ${t?.due && !CS?.on ? `<button class="ef-row" data-cal><span class="ef-ic">${icon('calendar')}</span><span class="ef-k">Add to Calendar</span><span class="ef-v"></span>${icon('chev')}</button>` : ''}
       </div>
       <textarea name="n" rows="3" placeholder="Note (optional), e.g. slides 44–47 not included">${esc(v.note || '')}</textarea>
+      <div class="tp-row" data-photos></div>
       <div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" data-ok>Save</button></div>`, 'small ef');
+    let imgs = [...(v.imgs || [])];
+    const drawPh = () => drawThumbs($('[data-photos]', m.el), imgs);
+    $('[data-photos]', m.el).addEventListener('click', e => {
+      if (e.target.closest('[data-tadd]')) { const f = pickFiles('image/*', true); f.then(async files => { if (!files?.length) return; toast('Adding…', 800); imgs.push(...await addTaskPhotos(files)); drawPh(); }); return; }
+      const th = e.target.closest('[data-tk]'); if (th) photoViewer(th.dataset.tk, () => { imgs = imgs.filter(k => k !== th.dataset.tk); drawPh(); });
+    });
+    drawPh();
     const draw = () => {
       $('[data-whenv]', m.el).textContent = due ? dueLabel({ due, time }) : 'No date';
       $('[data-when]', m.el).classList.toggle('set', !!due);
@@ -344,7 +352,7 @@ function remForm(t, folderId) {
     };
     $$('input, textarea', m.el).forEach(i => i.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter' && i.tagName === 'INPUT') $('[data-ok]', m.el).click(); }));
     let out = false;
-    const read = () => ({ text: $('[name=t]', m.el).value.trim(), folderId: key && !key.startsWith('tag:') ? key : null, ...(key.startsWith('tag:') ? { tag: key.slice(4) } : {}), due, time: due ? time : '', note: $('[name=n]', m.el).value.trim() });
+    const read = () => ({ text: $('[name=t]', m.el).value.trim(), folderId: key && !key.startsWith('tag:') ? key : null, ...(key.startsWith('tag:') ? { tag: key.slice(4) } : {}), due, time: due ? time : '', note: $('[name=n]', m.el).value.trim(), imgs });
     m.el.addEventListener('click', guard(async e => {
       if (e.target.closest('[data-when]')) { const r = await whenPicker(due, time); if (r) { due = r.due; time = r.time; draw(); } }
       if (e.target.closest('[data-subj]')) { const k = await subjectPicker(key); if (k !== null) { key = normKey(k); draw(); } }
@@ -354,12 +362,14 @@ function remForm(t, folderId) {
       await loadPlan();
       const old = t && PLAN.tasks.find(x => x.id === t.id);
       const moved = !old || old.due !== n.due || (old.time || '') !== n.time;
-      const nt = { ...(old || { id: uid(), done: false }), ...n }; if (moved) { delete nt.n1; delete nt.cal; } if (!n.tag) delete nt.tag;
+      const nt = { ...(old || { id: uid(), done: false }), ...n }; if (moved) { delete nt.n1; delete nt.cal; } if (!n.tag) delete nt.tag; if (!nt.imgs.length) delete nt.imgs;
+      for (const k of old?.imgs || []) if (!nt.imgs?.includes(k)) db.del('blobs', k);          // photos you removed
       PLAN.tasks = [...PLAN.tasks.filter(y => y.id !== nt.id), nt]; await savePlan(); out = true; m.close();
     });
     $('[data-del]', m.el)?.addEventListener('click', guard(async () => {
       if (!await confirmBox('Delete this task?')) return;
-      await loadPlan(); PLAN.tasks = PLAN.tasks.filter(y => y.id !== t.id); await savePlan(); out = true; m.close();
+      await loadPlan(); for (const k of PLAN.tasks.find(y => y.id === t.id)?.imgs || []) db.del('blobs', k);
+      PLAN.tasks = PLAN.tasks.filter(y => y.id !== t.id); await savePlan(); out = true; m.close();
     }));
     $('[data-cal]', m.el)?.addEventListener('click', guard(async () => {
       const n = { ...t, ...read() }; if (!n.due) return toast('Give it a due date first');

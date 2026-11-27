@@ -407,7 +407,7 @@ function openHelp(topic = 0) {
 
 // ---------- Start ----------
 boot().then(() => {
-  bootFind(); bootOrganize(); bootPlus(); bootReminders(); bootSync(); bootHistory(); bootPhone();
+  bootFind(); bootOrganize(); bootPlus(); bootReminders(); bootSync(); bootHistory(); bootPhone(); bootEdit();
   $('#helpSide')?.addEventListener('click', () => openHelp());
   document.addEventListener('keydown', e => { if (e.key === '?' && !e.target.closest?.('[contenteditable], input, textarea')) openHelp(); });
   if (!localStorage.getItem('inkbook.seenHelp2')) { try { localStorage.setItem('inkbook.seenHelp2', '1'); } catch { } toast('New: folders, lessons, images, shapes, saved questions, import & convert. Tap Help in the sidebar for a tour.', 6000); }

@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '26';
+const APP_VERSION = '27';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -1067,6 +1067,10 @@ function pushUndo(p, before) {
 }
 function applyHist(from, to, key) {
   clearSelection(); const u = from.pop(); if (!u) return;
+  if (u.group) {
+    for (const g of u.group) { const p = E.byId.get(g.id); if (!p) continue; const v = g[key]; p.strokes = v.strokes.slice(); p.texts = v.texts.slice(); p.images = v.images.slice(); p.tables = (v.tables || []).map(t => structuredClone(t)); p.links = (v.links || []).map(l => ({ ...l })); refreshPage(p); markDirty(p); }
+    to.push(u); updateUndoBtns(); return;
+  }
   const p = E.byId.get(u.id); if (!p) return applyHist(from, to, key);
   p.strokes = u[key].strokes.slice(); p.texts = u[key].texts.slice(); p.images = u[key].images.slice();
   if (u[key].tables) p.tables = u[key].tables.map(t => structuredClone(t));
@@ -1304,10 +1308,19 @@ function onMove(e) {
   } else if (a.mode === 'lasso') {
     if (S.selMode === 'rect') a.poly = [a.start.x, a.start.y, pt.x, a.start.y, pt.x, pt.y, a.start.x, pt.y];
     else list.forEach(ev => { const q = toPt(a, ev); a.poly.push(q.x, q.y); });
-  } else if (a.mode === 'move') { a.dx = pt.x - a.start.x; a.dy = pt.y - a.start.y; }
+  } else if (a.mode === 'move') {
+    const sr = scroller.getBoundingClientRect();                        // near the top/bottom edge: scroll, so it can travel to other pages
+    if (e.clientY > sr.bottom - 70) scroller.scrollTop += 14; else if (e.clientY < sr.top + 70) scroller.scrollTop -= 14;
+    const tg = pageAt(e.clientX, e.clientY) || { p: a.page, el: a.pageEl }, r = tg.el.getBoundingClientRect(), u = r.width / tg.p.w;
+    const b = E.sel.box, bw = b[2] - b[0], bh = b[3] - b[1];
+    let nx = (e.clientX - r.left) / u - (a.start.x - b[0]), ny = (e.clientY - r.top) / u - (a.start.y - b[1]);
+    nx = clamp(nx, Math.min(0, tg.p.w - bw), Math.max(0, tg.p.w - bw)); ny = clamp(ny, Math.min(0, tg.p.h - bh), Math.max(0, tg.p.h - bh));   // never off the page
+    a.tgt = tg.p === a.page ? null : tg.p; a.tgtEl = a.tgt ? tg.el : null;
+    a.dx = nx - b[0]; a.dy = ny - b[1];
+  }
   else if (a.mode === 'scale') {
-    const b = E.sel.box;
-    a.k = clamp(((pt.x - b[0]) / (b[2] - b[0]) + (pt.y - b[1]) / (b[3] - b[1])) / 2, 0.1, 12);
+    const b = E.sel.box, kmax = Math.max(0.1, Math.min((a.page.w - b[0]) / Math.max(1, b[2] - b[0]), (a.page.h - b[1]) / Math.max(1, b[3] - b[1])));
+    a.k = clamp(((pt.x - b[0]) / (b[2] - b[0]) + (pt.y - b[1]) / (b[3] - b[1])) / 2, 0.1, Math.min(12, kmax));
   } else if (a.mode === 'laser') { list.forEach(ev => { const q = toPt(a, ev); laser.pts.push([q.x, q.y, performance.now(), 0]); }); a.cur = pt; }
   else return;
   scheduleLive();
@@ -1331,7 +1344,8 @@ function onUp(e) {
   else if (a.mode === 'move' || a.mode === 'scale') {
     E.moving = false;
     const changed = a.mode === 'move' ? Math.abs(a.dx) + Math.abs(a.dy) > 0.5 : Math.abs(a.k - 1) > 0.01;
-    if (changed) applySelTransform(a.dx || 0, a.dy || 0, a.k || 1); else { refreshPage(p); showSelMenu(); }
+    if (a.tgt && a.mode === 'move') moveSelToPage(a.tgt, a.dx, a.dy);
+    else if (changed) applySelTransform(a.dx || 0, a.dy || 0, a.k || 1); else { refreshPage(p); showSelMenu(); }
   }
   scheduleLive();
 }
@@ -1370,7 +1384,7 @@ function scheduleLive() { if (!liveQueued) { liveQueued = true; requestAnimation
 function drawLive() {
   liveQueued = false;
   const a = active && active.mode !== 'text' ? active : null;
-  const host = a?.pageEl || (laser.pts.length && laser.el) || (E.sel && E.els.get(E.sel.page.id)) || null;
+  const host = (a?.mode === 'move' && a.tgtEl) || a?.pageEl || (laser.pts.length && laser.el) || (E.sel && E.els.get(E.sel.page.id)) || null;
   if (!host || !host.isConnected) { live.remove(); return; }
   const c = host.querySelector('canvas.ink');
   let fresh = false;
@@ -1402,7 +1416,7 @@ function drawLive() {
     ctx.closePath(); ctx.fillStyle = S.accent + '14'; ctx.fill();
     ctx.setLineDash([6, 5]); ctx.strokeStyle = S.accent; ctx.lineWidth = 1.6; ctx.stroke(); ctx.setLineDash([]);
   }
-  if (E.sel && E.els.get(E.sel.page.id) === host) drawSelection(ctx, a, s, dark, page);
+  if (E.sel && (E.els.get(E.sel.page.id) === host || (a?.tgtEl && a.tgtEl === host))) drawSelection(ctx, a, s, dark, page);
   if (laser.pts.length && laser.el === host) drawLaser(ctx, s);
 }
 function drawSelection(ctx, a, s, dark, page) {
@@ -1526,7 +1540,48 @@ function applySelTransform(dx, dy, k) {
     const n = { ...structuredClone(t), x: Math.round(tx(t.x)), y: Math.round(ty(t.y)), w: Math.round(Math.max(120, t.w * k)), s: +clamp(t.s * k, 8, 120).toFixed(1) };
     nb.add(n); return n;
   });
+  followSaved(p, b, tx, ty);
   pushUndo(p, before); refreshPage(p); setSelection(p, ns, ni, nt, nb);
+}
+// Saved items (★ Save) whose spot is inside the moved selection move with it
+function followSaved(p, b, tx, ty, toPage = p) {
+  let changed = false;
+  for (const it of E.nb?.items || []) {
+    if (it.pageId !== p.id) continue;
+    const cx = (it.box[0] + it.box[2]) / 2, cy = (it.box[1] + it.box[3]) / 2;
+    if (cx < b[0] || cx > b[2] || cy < b[1] || cy > b[3]) continue;
+    it.box = [tx(it.box[0]), ty(it.box[1]), tx(it.box[2]), ty(it.box[3])].map(n => Math.round(n)); it.pageId = toPage.id; changed = true;
+  }
+  if (changed) saveNb();
+}
+// The page under a screen point (or the nearest one, so a drag never gets stuck in the gap between pages)
+function pageAt(x, y) {
+  let best = null, bd = Infinity;
+  for (const p of E.pages) {
+    const el = E.els.get(p.id); if (!el) continue;
+    const r = el.getBoundingClientRect(), d = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+    if (d < bd) { bd = d; best = { p, el }; if (!d) break; }
+  }
+  return best;
+}
+// Move the selection to another page (one undo step for both pages)
+function moveSelToPage(tp, dx, dy) {
+  const sel = E.sel, sp = sel.page, b = sel.box, bs = snap(sp), bt = snap(tp), tx = x => x + dx, ty = y => y + dy;
+  const strokes = [...sel.strokes].map(st => ({ ...st, p: shiftPts(st.p, dx, dy) }));
+  const images = [...sel.images].map(im => ({ ...im, x: tx(im.x), y: ty(im.y) }));
+  const texts = [...sel.texts].map(t => ({ ...t, x: tx(t.x), y: ty(t.y) }));
+  const tables = [...sel.tables].map(t => ({ ...structuredClone(t), x: Math.round(tx(t.x)), y: Math.round(ty(t.y)) }));
+  const inBox = l => { const cx = l.x + l.w / 2, cy = l.y + l.h / 2; return cx >= b[0] && cx <= b[2] && cy >= b[1] && cy <= b[3]; };
+  const links = (sp.links || []).filter(inBox).map(l => ({ ...l, x: tx(l.x), y: ty(l.y) }));
+  sp.strokes = sp.strokes.filter(s => !sel.strokes.has(s)); sp.images = sp.images.filter(s => !sel.images.has(s));
+  sp.texts = sp.texts.filter(s => !sel.texts.has(s)); sp.tables = sp.tables.filter(s => !sel.tables.has(s)); sp.links = (sp.links || []).filter(l => !inBox(l));
+  tp.strokes.push(...strokes); tp.images.push(...images); tp.texts.push(...texts); (tp.tables ||= []).push(...tables); (tp.links ||= []).push(...links);
+  followSaved(sp, b, tx, ty, tp);
+  E.undo.push({ group: [{ id: sp.id, before: bs, after: snap(sp) }, { id: tp.id, before: bt, after: snap(tp) }] }); if (E.undo.length > 300) E.undo.shift();
+  E.redo = []; markDirty(sp); markDirty(tp); updateUndoBtns();
+  refreshPage(sp); refreshPage(tp);
+  setSelection(tp, new Set(strokes), new Set(images), new Set(texts), new Set(tables));
+  toast(`Moved to page ${E.pages.indexOf(tp) + 1}`, 1200);
 }
 function hideSelMenu() { selMenu?.remove(); selMenu = null; }
 // Floating menus live on screen (not inside the page) so they can always be kept fully visible:
@@ -1560,7 +1615,7 @@ function showSelMenu() {
   const onlyTable = E.sel.tables.size === 1 && !E.sel.strokes.size && !E.sel.images.size && !E.sel.texts.size;
   selMenu = floatMenu(host, p, (b[0] + b[2]) / 2, b[1],
     (onlyTable ? `<button data-a="tedit" class="ask-btn">✎ Edit table</button><button data-a="tgraph">📈 Graph</button>` : '') +
-    `<button data-a="ask" class="ask-btn">✦ Ask Claude</button><button data-a="style" data-pop-anchor>Style</button><button data-a="img">Save image</button><button data-a="copy">Copy</button><button data-a="dup">Duplicate</button><button data-a="save">★ Save</button><button data-a="del" class="danger">Delete</button><button data-a="more" title="Cut, link, sticker">⋯</button>`,
+    `<button data-a="ask" class="ask-btn">✦ Ask Claude</button><button data-a="style" data-pop-anchor>Style</button><button data-a="copy">Copy</button><button data-a="cut">Cut</button><button data-a="dup">Duplicate</button><button data-a="save">★ Save</button><button data-a="del" class="danger">Delete</button><button data-a="more" title="Save image, link, sticker">⋯</button>`,
     (act, btn) => act === 'more' ? guard(selMoreMenu)() : act === 'tedit' ? editTable(p, [...E.sel.tables][0]) : act === 'tgraph' ? guard(tableGraph)(p, [...E.sel.tables][0]) : act === 'style' ? openSelStyle(btn) : act === 'ask' ? guard(askClaude)(E.sel.page, E.sel.box)
       : act === 'img' ? guard(saveSelectionImage)() : selAction(act), b[3]);
 }
@@ -1589,7 +1644,7 @@ async function pasteClip(p, pt) {
 async function selAction(act) {
   const sel = E.sel; if (!sel) return;
   const p = sel.page;
-  if (act === 'copy') { copySel(); toast('Copied — tap an empty spot with the lasso (any page) to paste', 2200); return; }
+  if (act === 'copy') { copySel(); toast('Copied. To paste: tap an empty spot with the lasso, or hold a finger for the wheel → Paste', 2600); return; }
   if (act === 'save') return saveItemFlow(p, sel.box);
   if (act === 'dup') { copySel(); return pasteClip(p, { x: sel.box[0] + 24, y: sel.box[1] + 24 }); }
   if (act === 'cut') copySel();

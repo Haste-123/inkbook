@@ -1327,3 +1327,28 @@ body.reading .page { touch-action: pan-x pan-y; }
 
 /* v26: the notebook menu fits narrow phones */
 .popover.pop-more { width: min(380px, calc(100vw - 16px)); max-width: calc(100vw - 16px); box-sizing: border-box; }
+
+/* v27 wheel, snip, task photos */
+.tool-wheel .wheel-cust { position: absolute; left: calc(50% + 70px); top: calc(50% + 70px); width: 34px; height: 34px; transform: translate(-50%, -50%); border-radius: 50%; border: 0; background: var(--surface-2); color: var(--muted); display: grid; place-items: center; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.tool-wheel .wheel-cust svg.i { width: 17px; height: 17px; }
+.tool-wheel button.dim { opacity: .4; }
+.wc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.wc-it { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); font-size: 12.5px; font-weight: 600; }
+.wc-it svg.i { width: 22px; height: 22px; }
+.wc-it.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent); }
+.wc-it i { position: absolute; top: 5px; right: 6px; min-width: 18px; height: 18px; border-radius: 9px; background: var(--accent); color: #fff; font: 700 11px/18px -apple-system, system-ui, sans-serif; font-style: normal; }
+.ref-snip.on { background: var(--accent); color: #fff; }
+.ref-scroll.snipping .ref-page { touch-action: none; cursor: crosshair; }
+.ref-page { position: relative; }
+.snip-box { position: absolute; border: 2px dashed var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 4px; pointer-events: none; }
+.snip-done { position: absolute; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 14px); z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.2); font-weight: 600; font-size: 14px; }
+.snip-done span { display: inline-flex; align-items: center; gap: 6px; color: #2b9a63; }
+.snip-done svg.i { width: 17px; height: 17px; }
+.ref-pane { position: relative; }
+.tp-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.tp-th { width: 64px; height: 64px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2) center/cover no-repeat; padding: 0; }
+.tp-add { height: 64px; padding: 0 14px; border-radius: 10px; border: 1px dashed var(--border); background: none; color: var(--accent); display: inline-flex; align-items: center; gap: 6px; font: 600 14px -apple-system, system-ui, sans-serif; }
+.tp-add svg.i { width: 18px; height: 18px; }
+.modal.pv { width: min(900px, 100%); }
+.pv-wrap { display: grid; place-items: center; max-height: 72dvh; overflow: auto; border-radius: 12px; background: var(--surface-2); }
+.pv-wrap img { max-width: 100%; max-height: 72dvh; display: block; }

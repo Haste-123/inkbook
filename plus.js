@@ -416,9 +416,11 @@ async function addLinkFromSel() {
 }
 async function selMoreMenu() {
   if (!E.sel) return;
-  const v = await menu('Selection', [{ label: 'Cut', value: 'cut', icon: 'cut' }, { label: 'Add a link…', value: 'link', icon: 'link', hint: 'Tap it later to jump to a page, lesson, notebook or website' },
-    { label: 'Save as sticker', value: 'stk', icon: 'sticker', hint: 'Reuse it from ⋯ → Stickers' }]);
-  if (v === 'cut') selAction('cut'); if (v === 'link') await addLinkFromSel(); if (v === 'stk') await saveSticker();
+  const v = await menu('Selection', [{ label: 'Save as image', value: 'img', icon: 'export', hint: 'To Photos or Files' }, { label: 'Add a link…', value: 'link', icon: 'link', hint: 'Tap it later to jump to a page, lesson, notebook or website' },
+    { label: 'Save as sticker', value: 'stk', icon: 'sticker', hint: 'Reuse it from ⋯ → Stickers' },
+    ...([...E.sel.strokes, ...E.sel.images, ...E.sel.texts, ...(E.sel.tables || [])].some(o => o.g) ? [{ label: 'Ungroup', value: 'ungroup', icon: 'layers', hint: 'Select the pieces of this saved item separately' }] : [])]);
+  if (v === 'ungroup') await ungroupSel();
+  if (v === 'img') await saveSelectionImage(); if (v === 'link') await addLinkFromSel(); if (v === 'stk') await saveSticker();
 }
 
 // =====================================================================

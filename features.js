@@ -360,7 +360,7 @@ function moreRoot(box) {
       row('rem', 'bell', 'Reminders', 'Tasks and deadlines') + row('recs', 'mic', 'Recordings', 'Lectures you recorded here') +
       row('split', 'split', REF.nb ? 'Close split view' : 'Split view', 'Another notebook side by side', REF.nb ? 'on' : '') +
       row('calc', 'calc', 'Calculator', '') + row('pencil', 'hand', S.pencilOnly ? 'Pencil only: on' : 'Pencil only: off', 'Fingers scroll instead of drawing', S.pencilOnly ? 'on' : '') +
-      row('laser', 'laser', 'Laser pointer', 'For presenting') + row('help', 'help', 'Help', '')],
+      row('laser', 'laser', 'Laser pointer', 'For presenting') + row('wheel', 'settings', 'Customise the wheel', 'The tools you get when you hold a finger on the page') + row('help', 'help', 'Help', '')],
   };
   let tab = TABS[S.moreTab] ? S.moreTab : 'insert';
   const draw = () => {
@@ -386,7 +386,7 @@ async function moreAction(k, box) {
   closePopover();
   const act = {
     paste: async () => { const sr = scroller.getBoundingClientRect(), er = E.els.get(p.id).getBoundingClientRect(); await pasteClip(p, { x: 60, y: clamp((sr.top + 80 - er.top) / E.unit, 20, p.h - 40) }); },
-    hist: () => pageHistoryFlow(p), bm: () => toggleBookmark(i), addp: () => $('#addPageBtn').click(), pencil: () => $('#pencilBtn').click(), dup: () => duplicatePage(i), png: () => exportPagePng(i), selall: () => selectAll(), del: () => deletePage(i),
+    hist: () => pageHistoryFlow(p), wheel: () => wheelSettings(), bm: () => toggleBookmark(i), addp: () => $('#addPageBtn').click(), pencil: () => $('#pencilBtn').click(), dup: () => duplicatePage(i), png: () => exportPagePng(i), selall: () => selectAll(), del: () => deletePage(i),
     sec: () => addSectionFlow({ level: 1 }), saved: () => setSideTab('saved'),
     cover: async () => { await flush(); await makeThumb(E.nb, E.pages); await coverEditor(E.nb); },
     rename: () => inlineRename($('#nbTitle'), E.nb.title, async v => { E.nb.title = v; await saveNb(); }),
