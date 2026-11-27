@@ -797,7 +797,7 @@ renderPlanner = async function (box) {
   const week = open.filter(t => t.due && daysTo(t.due) >= 1 && daysTo(t.due) <= 7).length;
   // summary: semester week + three small counters
   const st = semText();
-  const counts = [[late, 'overdue', 'late', 'Overdue'], [today, 'today', 'today', 'Today'], [week, 'next 7 days', 'week', '']].filter(c => c[0]);
+  const counts = [[late, 'overdue', 'late', 'Overdue'], [today, 'today', 'tdy', 'Today'], [week, 'next 7 days', 'week', '']].filter(c => c[0]);
   $('[data-sum]', root).innerHTML = statusChipHtml() + (st ? `<button class="sem-card" data-sem title="Change semester"><div class="sem-top"><b>${esc(st.big)}</b><span>${esc(st.small)}</span></div><div class="sem-prog"><i style="width:${st.pct}%"></i></div></button>` : '') +
     `<div class="pl-counts">${counts.length ? counts.map(([n, l, c, j]) => `<button class="pl-count ${c}" ${j ? `data-jump="${j}"` : ''}><b>${n}</b>${l}</button>`).join('') : `<span class="pl-clear">${icon('check')}All caught up</span>`}</div>`;
 

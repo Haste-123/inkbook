@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '25';
+const APP_VERSION = '26';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -192,7 +192,7 @@ const db = (() => {
     pagesOf: async id => wrap((await st('pages')).index('nb').getAll(id)),
   };
 })();
-const normPage = p => { p.strokes ||= []; p.texts ||= []; p.images ||= []; p.tables ||= []; return p; };
+const normPage = p => { p.strokes ||= []; p.texts ||= []; p.images ||= []; p.tables ||= []; p.links ||= []; return p; };
 const pageBlobKeys = p => [p.bgKey, ...(p.images || []).map(i => i.key)].filter(Boolean);
 async function copyBlob(key, prefix = 'img_') {
   const b = await db.get('blobs', key); if (!b) return null;
@@ -729,7 +729,7 @@ const sizeKey = t => ['pen', 'hl', 'eraser', 'shape', 'text'].includes(t) ? t : 
 
 function newPage(nb, o = {}) {
   return { id: uid(), notebookId: nb.id, w: o.w ?? nb.pw ?? PAGE_W, h: o.h ?? nb.ph ?? A4_H, template: o.template ?? nb.paper ?? 'lined',
-    paperColor: o.paperColor ?? nb.paperColor ?? '#ffffff', bgKey: null, strokes: [], texts: [], images: [] };
+    paperColor: o.paperColor ?? nb.paperColor ?? '#ffffff', bgKey: null, strokes: [], texts: [], images: [], tables: [], links: [] };
 }
 async function openNotebook(id, goto) {
   const nb = await db.get('notebooks', id); if (!nb) return;
@@ -760,7 +760,8 @@ async function leaveNotebook() {
   io?.disconnect(); sideIO?.disconnect(); pagesEl.innerHTML = ''; E.els.clear(); E.visible.clear(); clearImgCache();
   E.nb = null; showLibrary();
 }
-async function saveNb() { if (!E.nb) return; E.nb.pages = E.pages.map(p => p.id); E.nb.coverKey = E.pages[0]?.bgKey || null; await db.put('notebooks', E.nb); }
+let lastNbSaved = '';
+async function saveNb() { if (!E.nb) return; E.nb.pages = E.pages.map(p => p.id); E.nb.coverKey = E.pages[0]?.bgKey || null; const s = JSON.stringify(E.nb); if (s === lastNbSaved) return; lastNbSaved = s; await db.put('notebooks', E.nb); }
 
 const dirty = new Set(); let saveT = null;
 function markDirty(p) { p.rev = (p.rev || 0) + 1; dirty.add(p); clearTimeout(saveT); saveT = setTimeout(flush, 700); if (S.sideOpen) queueThumb(p); }

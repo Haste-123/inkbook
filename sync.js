@@ -28,8 +28,8 @@ const syDirtySave = () => { clearTimeout(syDirtyT); syDirtyT = setTimeout(() => 
 const rawPut = db.put, rawDel = db.del;
 const SYNCED = new Set(['notebooks', 'pages', 'folders', 'blobs']);
 const skipKey = (n, k) => n === 'blobs' && typeof k === 'string' && k.startsWith('sync:');
-db.put = async (n, v, k) => { const r = await rawPut(n, v, k); const key = k ?? v?.id; if (SYNCED.has(n) && key != null && !skipKey(n, key)) { syDirty.add(n + '|' + key); syDirtySave(); syncSoon(); } return r; };
-db.del = async (n, k) => { const r = await rawDel(n, k); if (SYNCED.has(n) && !skipKey(n, k)) { syDirty.add(n + '|' + k); syDirtySave(); syncSoon(); } return r; };
+db.put = async (n, v, k) => { const r = await rawPut(n, v, k); const key = k ?? v?.id; if (SYNCED.has(n) && key != null && !skipKey(n, key)) { syDirty.add(n + '|' + key); syDirtySave(); if (!syncing) syncSoon(); } return r; };
+db.del = async (n, k) => { const r = await rawDel(n, k); if (SYNCED.has(n) && !skipKey(n, k)) { syDirty.add(n + '|' + k); syDirtySave(); if (!syncing) syncSoon(); } return r; };
 
 // ---------- paths, hashing, encoding ----------
 const PFX = { folders: 'f/', notebooks: 'n/', pages: 'p/' };
@@ -235,6 +235,7 @@ async function syncNow({ full = false, progress = null } = {}) {
     syncing = false; setSyncStatus();
     if (changedLocal.size) await afterRemoteChanges(changedLocal).catch(console.warn);
     if (syncAgain) { syncAgain = false; setTimeout(() => syncNow().catch(() => { }), 1500); }
+    else if (syDirty.size && SY?.on) syncSoon();   // something changed while this sync was running
   }
 }
 // Show what arrived from the other device

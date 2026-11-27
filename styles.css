@@ -1113,7 +1113,7 @@ input[type=date], input[type=time] { width: 100%; box-sizing: border-box; }
 .pl-count { display: inline-flex; align-items: baseline; gap: 5px; border: 0; border-radius: 12px; padding: 9px 13px; font: 600 13px -apple-system, system-ui, sans-serif; background: var(--surface-2); color: var(--muted); }
 .pl-count b { font-size: 18px; font-weight: 800; }
 .pl-count.late { background: color-mix(in srgb, #e5484d 12%, transparent); color: #e5484d; }
-.pl-count.today { background: color-mix(in srgb, #f08c00 13%, transparent); color: #d67a00; }
+.pl-count.tdy { background: color-mix(in srgb, #f08c00 13%, transparent); color: #d67a00; }
 .pl-count.week b { color: var(--accent); }
 .pl-clear { display: inline-flex; align-items: center; gap: 6px; color: #30a46c; font-weight: 650; font-size: 14px; padding: 0 6px; }
 .pl-clear svg.i { width: 18px; height: 18px; }
@@ -1324,3 +1324,6 @@ body.reading .page { touch-action: pan-x pan-y; }
 .st-t b { font-size: 15px; }
 .st-t small { font-size: 12.5px; color: var(--muted); }
 .st-row .btn.small { display: inline-flex; align-items: center; gap: 5px; }
+
+/* v26: the notebook menu fits narrow phones */
+.popover.pop-more { width: min(380px, calc(100vw - 16px)); max-width: calc(100vw - 16px); box-sizing: border-box; }

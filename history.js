@@ -12,12 +12,15 @@ const HIST_MS = 60 * 60e3, HIST_GAP = 2 * 60e3, HK = id => 'sync:hist:' + id;   
   const put0 = db.put;
   db.put = async (n, v, k) => { if (n === 'pages' && v?.id) await keepLocalVersion(v).catch(() => { }); return put0(n, v, k); };
 }
+const histLast = new Map();
 async function keepLocalVersion(next) {
-  const now = Date.now(), h = ((await db.get('blobs', HK(next.id))) || []).filter(x => now - x.t < HIST_MS);
-  if (h.length && now - h[h.length - 1].t < HIST_GAP) return;
+  const now = Date.now();
+  if (now - (histLast.get(next.id) || 0) < HIST_GAP) return;
+  const h = ((await db.get('blobs', HK(next.id))) || []).filter(x => now - x.t < HIST_MS);
+  if (h.length && now - h[h.length - 1].t < HIST_GAP) { histLast.set(next.id, h[h.length - 1].t); return; }
   const old = await db.get('pages', next.id); if (!old) return;
   if (JSON.stringify(old.strokes) === JSON.stringify(next.strokes) && JSON.stringify(old.texts) === JSON.stringify(next.texts) && old.w === next.w && old.h === next.h && (old.images || []).length === (next.images || []).length && JSON.stringify(old.tables || []) === JSON.stringify(next.tables || [])) return;
-  h.push({ t: now, page: old }); await rawPut('blobs', h.slice(-30), HK(next.id));
+  h.push({ t: now, page: old }); histLast.set(next.id, now); await rawPut('blobs', h.slice(-30), HK(next.id));
 }
 async function pruneLocalHistory() {
   const now = Date.now();
