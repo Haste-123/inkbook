@@ -276,7 +276,7 @@ function bootFind() {
   $('#findPrev').onclick = () => stepFind(-1); $('#findNext').onclick = () => stepFind(1); $('#findClose').onclick = closeFind;
   const btn = document.createElement('button'); btn.className = 'icon-btn'; btn.id = 'findBtn'; btn.title = 'Find (⌘F)'; btn.innerHTML = icon('search');
   btn.onclick = () => F.open ? closeFind() : openFind();
-  $('.tb-right').prepend(btn);
+  ($('.tb-end') || $('.tb-right')).prepend(btn);
   document.addEventListener('keydown', e => {
     if (!E.nb) return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); openFind(); }

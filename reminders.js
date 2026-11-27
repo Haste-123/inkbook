@@ -11,6 +11,7 @@
 Object.assign(ICONS, {
   bell: '<path d="M6 9a6 6 0 0112 0c0 6 2.5 8 2.5 8h-17S6 15 6 9z"/><path d="M10 20.5a2.2 2.2 0 004 0"/>',
   clock2: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
 });
 if (S.remNotify === undefined) S.remNotify = false;
 
@@ -60,9 +61,13 @@ function parseWhen(raw = '') {
   scan(/\b(?:tomorrow|tmrw?|tmw|tmr)\b/gi, 2, () => dayPlus(1));
   scan(/\bin\s+(\d{1,2}|an?|one|two|three|four|five)\s+(days?|weeks?)\b/gi, 2, m => dayPlus((NUMW[m[1].toLowerCase()] || +m[1]) * (/w/i.test(m[2]) ? 7 : 1)));
   scan(/\bnext\s+week\b/gi, 2, () => dayPlus(7));
+  let wk = null, wd = null;
+  scan(/\b(?:week|wk)\s*(\d{1,2})\b|\bw(\d{1,2})\b/gi, 1, m => { if (typeof sem !== 'function' || !sem() || wk != null) return false; wk = +(m[1] || m[2]); return weekStartOf(wk); });
   scan(/\b(next\s+)?(mon|tue|wed|thu|fri|sat|sun)(?:day|s|sday|nesday|rsday|rs|r|urday)?\b/gi, 3, m => {
+    if (wd == null) wd = WDAYS[m[2].toLowerCase()];
     let n = (WDAYS[m[2].toLowerCase()] - t0.getDay() + 7) % 7; if (m[1] && n === 0) n = 7; return dayPlus(n);
   });
+  if (wk != null && wd != null && pri >= 1) { const a = weekStartOf(wk); due = new Date(a.getFullYear(), a.getMonth(), a.getDate() + (wd - a.getDay() + 7) % 7); }   // "week 16 friday"
   // Take the date words off the end: "Lab report due fri 5pm" → "Lab report"
   let text = raw, cut = false, go = true;
   while (go) {
@@ -93,7 +98,7 @@ function remRow(t, showSubj = true) {
   const late = isLate(t), dd = t.due ? daysTo(t.due) : null, [sn, sc] = remSubj(t);
   const cls = t.done ? ' done' : late ? ' late' : dd === 0 ? ' due-today' : dd === 1 ? ' due-soon' : '';
   return `<div class="task${cls}" data-task="${t.id}"><button class="tk-box" data-tick title="Done">${t.done ? '✓' : ''}</button>
-    <div class="tk-main"><b>${esc(t.text)}</b><span>${showSubj ? `<i style="--c:${esc(sc)}"></i>${esc(sn)}` : ''}${showSubj && t.due ? ' · ' : ''}${t.due ? `<em>${esc(dueLabel(t))}</em>` : ''}${t.note ? ' · 📝' : ''}${t.cal && !CS?.on ? ' · 📅' : ''}</span>${t.note ? `<small class="tk-note">${esc(t.note)}</small>` : ''}</div></div>`;
+    <div class="tk-main"><b>${esc(t.text)}</b><span>${showSubj ? `<i style="--c:${esc(sc)}"></i>${esc(sn)}` : ''}${showSubj && t.due ? ' · ' : ''}${t.due ? `<em>${esc(dueLabel(t))}</em>` : ''}${t.note ? ' · 📝' : ''}${t.cal && !CS?.on ? ' · 📅' : ''}</span></div></div>`;
 }
 taskRow = remRow;
 taskForm = (t, folderId) => remForm(t, folderId);
@@ -102,7 +107,7 @@ taskForm = (t, folderId) => remForm(t, folderId);
 let REM = null;
 function openReminders() {
   if (REM?.m.el.isConnected) { REM.m.close(); return; }
-  const m = openModal(`<div class="rem-head"><h2>${icon('bell')}Reminders</h2><button class="chip rem-alert" data-alert></button><button class="icon-btn" data-close title="Close">${icon('x')}</button></div>
+  const m = openModal(`<div class="rem-head"><h2>${icon('bell')}Reminders${globalThis.semChip?.() || ''}</h2><button class="chip rem-alert" data-alert></button><button class="icon-btn" data-close title="Close">${icon('x')}</button></div>
     <div class="rem-add" data-cmp></div>
     <div class="rem-view"><div class="pl-seg small" data-rgroup><button data-v="date">${icon('calendar')}By date</button><button data-v="subject">${icon('folder')}By subject</button></div></div>
     <div class="rem-body" data-body></div>
@@ -630,12 +635,63 @@ function subjectGroupsHtml(list) {      // compact version for the Reminders pan
     return `<div class="tg-head sg-head" style="--c:${esc(s.color)}"><i></i>${esc(s.name)} · ${l.length}</div><div class="task-list">${l.map(t => remRow(t, false)).join('')}</div>`; }).join('');
 }
 
+// ---------- semester: which week are we in ----------
+const sem = () => PLAN.semester?.start ? PLAN.semester : null;
+function semWeek(d = today0()) { const s = sem(); if (!s) return null; const days = Math.round((d - parseDay(s.start)) / 864e5); return Math.floor(days / 7) + 1; }
+const weekStartOf = n => { const st = parseDay(sem().start); return new Date(st.getFullYear(), st.getMonth(), st.getDate() + (n - 1) * 7); };
+const shortDay = d => d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+function semText() {
+  const s = sem(); if (!s) return null;
+  const w = semWeek(), n = s.weeks || 16;
+  if (w < 1) { const d = daysTo(s.start); return { big: d === 1 ? 'Tomorrow' : `In ${d} days`, small: `${s.name ? s.name + ' starts' : 'Semester starts'} ${fmtDay(s.start)}`, pct: 0, w }; }
+  if (w > n) return { big: 'Done', small: `${s.name || 'Semester'} ended after ${n} weeks`, pct: 100, w };
+  const a = weekStartOf(w), b = new Date(a.getFullYear(), a.getMonth(), a.getDate() + 6);
+  return { big: `Week ${w}`, small: `of ${n}${s.name ? ' · ' + s.name : ''} · ${shortDay(a)}–${shortDay(b)}`, pct: Math.round((w - 1 + (Math.round((today0() - a) / 864e5) + 1) / 7) / n * 100), w };
+}
+globalThis.semChip = () => { const t = semText(); return t && t.w >= 1 && t.w <= (sem().weeks || 16) ? `<span class="sem-chip">${esc(t.big)}</span>` : ''; };
+function semesterForm() {
+  return new Promise(res => {
+    const s = sem() || {}, m = openModal(`<h2>Semester</h2>
+      <p class="hint" style="margin-top:0">Inkbook shows which week of the semester you're in, groups your tasks by week, and understands dates like <i>week 16 fri</i>.</p>
+      <div class="field"><label class="lbl">First day of week 1</label><input type="date" data-start value="${esc(s.start || isoDay(today0()))}"></div>
+      <div class="field two"><div><label class="lbl">Number of weeks</label><input type="number" data-weeks min="1" max="40" value="${s.weeks || 16}"></div><div><label class="lbl">Name (optional)</label><input type="text" data-sname value="${esc(s.name || '')}" placeholder="e.g. Fall 2026"></div></div>
+      <div class="modal-actions">${s.start ? '<button class="btn danger-outline" data-del>Remove</button>' : ''}<button class="btn" data-close>Cancel</button><button class="btn primary" data-ok>Save</button></div>`, 'small');
+    $$('input', m.el).forEach(i => i.addEventListener('keydown', e => e.stopPropagation()));
+    let out = false;
+    $('[data-ok]', m.el).onclick = guard(async () => {
+      const start = $('[data-start]', m.el).value; if (!start) return toast('Pick the first day');
+      await loadPlan(); PLAN.semester = { start, weeks: clamp(+$('[data-weeks]', m.el).value || 16, 1, 40), name: $('[data-sname]', m.el).value.trim() }; await savePlan();
+      out = true; m.close(); const t = semText(); if (t) toast(`📅 ${t.big}${t.w >= 1 ? ' of ' + PLAN.semester.weeks : ''}`, 1800);
+    });
+    $('[data-del]', m.el)?.addEventListener('click', guard(async () => { await loadPlan(); delete PLAN.semester; await savePlan(); out = true; m.close(); }));
+    m.onClose = () => res(out);
+  });
+}
+// date groups: with a semester, everything after tomorrow is grouped by semester week
+function dateGroups(list) {
+  const cw = semWeek(), out = [], add = (label, l, sub = '', late = false) => l.length && out.push({ label, l: l.sort(byDue), sub, late });
+  add('Overdue', list.filter(isLate), '', true);
+  add('Today', list.filter(t => t.due && !isLate(t) && daysTo(t.due) === 0));
+  add('Tomorrow', list.filter(t => t.due && daysTo(t.due) === 1));
+  const later = list.filter(t => t.due && daysTo(t.due) > 1);
+  if (cw != null) {
+    const byW = new Map(); for (const t of later) { const w = semWeek(parseDay(t.due)); if (!byW.has(w)) byW.set(w, []); byW.get(w).push(t); }
+    for (const w of [...byW.keys()].sort((a, b) => a - b)) {
+      const a = w >= 1 ? weekStartOf(w) : null;
+      add(w === cw ? 'Later this week' : w === cw + 1 ? `Next week · W${w}` : w >= 1 && w <= (sem().weeks || 16) + 4 ? `Week ${w}` : 'Later', byW.get(w), a && w !== cw ? `${shortDay(a)}–${shortDay(new Date(a.getFullYear(), a.getMonth(), a.getDate() + 6))}` : '');
+    }
+  } else { add('This week', later.filter(t => daysTo(t.due) <= 7)); add('Later', later.filter(t => daysTo(t.due) > 7)); }
+  add('No date', list.filter(t => !t.due));
+  return out;
+}
+dateGroupsHtml = list => dateGroups(list).map(g => `<div class="tg-head${g.late ? ' late' : ''}">${esc(g.label)} · ${g.l.length}${g.sub ? `<small>${esc(g.sub)}</small>` : ''}</div><div class="task-list">${g.l.map(t => remRow(t)).join('')}</div>`).join('');
+
 renderPlanner = async function (box) {
   await loadPlan(); updatePlannerCount();
   if (!FOLDERS.length) FOLDERS = await db.all('folders');
   let root = $('.planner2', box);
   if (!root) {                       // the shell (and the add box in it) is built once, so typing is never interrupted
-    box.innerHTML = `<div class="planner2"><div class="pl-stats" data-stats></div><div class="pl-cmp" data-cmp></div><div class="pl-dyn" data-dyn></div></div>`;
+    box.innerHTML = `<div class="planner2"><div class="pl-sum" data-sum></div><div class="pl-cmp" data-cmp></div><div class="pl-dyn" data-dyn></div></div>`;
     root = $('.planner2', box);
     root._cmp = makeComposer($('[data-cmp]', root), { subj: () => planFilter === 'general' ? '' : planFilter, onAdd: () => renderPlanner(box) });
     wirePlanner2(root, box);
@@ -644,63 +700,73 @@ renderPlanner = async function (box) {
   const all = PLAN.tasks, open = all.filter(t => !t.done);
   const exams = [...PLAN.exams].sort((a, b) => a.date.localeCompare(b.date)), upEx = exams.filter(x => daysTo(x.date) >= 0);
   const late = open.filter(isLate).length, today = open.filter(t => t.due && !isLate(t) && daysTo(t.due) === 0).length;
-  const week = open.filter(t => t.due && daysTo(t.due) >= 1 && daysTo(t.due) <= 7).length, nx = upEx[0];
-  const stat = (n, label, c, f) => `<button class="pl-stat${n ? '' : ' zero'}" style="--c:${c}" ${f ? `data-jump="${f}"` : ''}><b>${n}</b><span>${label}</span></button>`;
-  $('[data-stats]', root).innerHTML = stat(late, 'Overdue', '#e5484d', 'Overdue') + stat(today, 'Due today', '#f08c00', 'Today') + stat(week, 'Next 7 days', S.accent) +
-    `<button class="pl-stat${nx ? '' : ' zero'}" style="--c:${nx ? esc(subjColor(nx.folderId)) : '#8a8f98'}" ${nx ? `data-exam="${nx.id}"` : 'data-padd="exam"'}><b>${nx ? (daysTo(nx.date) === 0 ? 'Today' : daysTo(nx.date)) : '–'}</b><span>${nx ? (daysTo(nx.date) === 0 ? '' : 'days to ') + esc(nx.title) : 'No exams yet'}</span></button>`;
+  const week = open.filter(t => t.due && daysTo(t.due) >= 1 && daysTo(t.due) <= 7).length;
+  // summary: semester week + three small counters
+  const st = semText();
+  const counts = [[late, 'overdue', 'late', 'Overdue'], [today, 'today', 'today', 'Today'], [week, 'next 7 days', 'week', '']].filter(c => c[0]);
+  $('[data-sum]', root).innerHTML = (st ? `<button class="sem-card" data-sem title="Change semester"><div class="sem-top"><b>${esc(st.big)}</b><span>${esc(st.small)}</span></div><div class="sem-prog"><i style="width:${st.pct}%"></i></div></button>`
+      : `<button class="sem-set" data-sem>${icon('calendar')}Set semester start</button>`) +
+    `<div class="pl-counts">${counts.length ? counts.map(([n, l, c, j]) => `<button class="pl-count ${c}" ${j ? `data-jump="${j}"` : ''}><b>${n}</b>${l}</button>`).join('') : `<span class="pl-clear">${icon('check')}All caught up</span>`}</div>`;
 
   const folderKeys = [...FOLDERS].sort((a, b) => a.name.localeCompare(b.name)).map(f => f.id);
   const used = new Set(subjectKeys(all.filter(t => !t.done || S.planShowDone), upEx));
-  const chipKeys = [...folderKeys, ...[...used].filter(k => !folderKeys.includes(k))];   // every subject, even empty ones
+  const chipKeys = [...folderKeys, ...[...used].filter(k => !folderKeys.includes(k))];
   if (planFilter && !chipKeys.includes(planFilter)) planFilter = '';
   const fTasks = all.filter(t => inF(t) && (!t.done || S.planShowDone)), fOpen = fTasks.filter(t => !t.done), fDone = fTasks.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
-  const fEx = upEx.filter(inF), pastEx = exams.filter(x => daysTo(x.date) < 0 && inF(x)).reverse();
+  const fEx = upEx.filter(inF), bySubj = S.planGroup === 'subject';
 
   let tasksHtml;
-  if (S.planGroup === 'subject') {
+  if (bySubj) {
     const ks = planFilter ? [planFilter] : [...folderKeys, ...[...used].filter(k => !folderKeys.includes(k))];
     tasksHtml = ks.length ? `<div class="subj-grid">${ks.map(k => {
       const s = subjInfo(k), ts = all.filter(t => subjKey(t) === k), op = ts.filter(t => !t.done).sort(byDue), dn = ts.filter(t => t.done);
       const recent = dn.filter(t => Date.now() - (t.doneAt || 0) < 30 * 864e5).length, total = op.length + recent, pct = total ? Math.round(recent / total * 100) : 0;
       const ex = upEx.find(x => examKey(x) === k), lateN = op.filter(isLate).length, fid = k.startsWith('tag:') || k === 'general' ? '' : k;
       return `<section class="subj-card" style="--c:${esc(s.color)}">
-        <div class="sc-head"><i class="sc-dot"></i><b>${esc(s.name)}</b>${lateN ? `<span class="sc-late">${lateN} overdue</span>` : ''}${fid ? `<button class="icon-btn sc-more" data-sedit="${fid}" title="Rename or recolor">${icon('edit')}</button>` : ''}<button class="icon-btn sc-add" data-sadd="${esc(k)}" title="Add a task for ${esc(s.name)}">${icon('plus')}</button></div>
-        <div class="sc-meta"><span>${op.length ? `${op.length} to do` : 'Nothing to do'}${recent ? ` · ${recent} done` : ''}</span>${ex ? `<button class="sc-exam" data-exam="${ex.id}">📚 ${esc(ex.title)} · ${daysTo(ex.date) === 0 ? 'today' : daysTo(ex.date) + 'd'}</button>` : ''}</div>
+        <div class="sc-head"><i class="sc-dot"></i><b>${esc(s.name)}</b>${lateN ? `<span class="sc-late">${lateN} late</span>` : ''}${ex ? `<button class="sc-exam" data-exam="${ex.id}" title="${esc(ex.title)}">📚 ${daysTo(ex.date) === 0 ? 'today' : daysTo(ex.date) + 'd'}</button>` : ''}${fid ? `<button class="icon-btn sc-more" data-sedit="${fid}" title="Rename or recolor">${icon('edit')}</button>` : ''}<button class="icon-btn sc-add" data-sadd="${esc(k)}" title="Add a task">${icon('plus')}</button></div>
         ${total ? `<div class="sc-prog"><i style="width:${pct}%"></i></div>` : ''}
-        ${op.length ? `<div class="task-list">${op.map(t => remRow(t, false)).join('')}</div>` : `<div class="sc-empty">${recent ? 'All done 🎉' : 'No tasks yet. Tap + to add one.'}</div>`}
+        ${op.length ? `<div class="task-list">${op.map(t => remRow(t, false)).join('')}</div>` : `<div class="sc-empty">${recent ? 'All done 🎉' : 'Nothing yet'}</div>`}
         ${S.planShowDone && dn.length ? `<div class="task-list sc-done">${dn.sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0)).slice(0, 10).map(t => remRow(t, false)).join('')}</div>` : ''}
-      </section>`; }).join('')}<button class="subj-card sc-new" data-newsubj>${icon('plus')}<b>New subject</b><span>Add a course you take</span></button></div>`
-      : `<div class="rem-empty">${icon('folder')}<b>No subjects yet</b><span>Add one for each course, then file tasks and exams under it.</span><button class="btn primary" data-newsubj>${icon('plus')}New subject</button></div>`;
+      </section>`; }).join('')}<button class="subj-card sc-new" data-newsubj>${icon('plus')}<b>New subject</b></button></div>`
+      : `<div class="rem-empty">${icon('folder')}<b>No subjects yet</b><button class="btn primary" data-newsubj>${icon('plus')}New subject</button></div>`;
   } else {
     tasksHtml = fOpen.length || (S.planShowDone && fDone.length) ? dateGroupsHtml(fOpen) + (S.planShowDone && fDone.length ? `<div class="tg-head">Done · ${fDone.length}</div><div class="task-list">${fDone.slice(0, 40).map(t => remRow(t)).join('')}</div>` : '')
-      : `<div class="rem-empty">${icon('bell')}<b>${planFilter ? 'Nothing to do for ' + esc(subjInfo(planFilter).name) : 'Nothing to do'}</b><span>Type above to add a task. Words like <i>today</i>, <i>fri</i>, <i>27th</i>, <i>5pm</i> set the date; you can change it with the 📅 button before adding.</span></div>`;
+      : `<div class="rem-empty">${icon('check')}<b>${planFilter ? 'Nothing to do for ' + esc(subjInfo(planFilter).name) : 'Nothing to do'}</b></div>`;
   }
   $('[data-dyn]', root).innerHTML = `
+    <div class="ex-strip">${fEx.map(x => { const d = daysTo(x.date); return `<button class="ex-chip" data-exam="${x.id}" style="--c:${esc(subjColor(x.folderId))}"><b>${d === 0 ? 'Today' : d}</b><span>${esc(x.title)}${d ? `<small>${d === 1 ? 'day' : 'days'}</small>` : ''}</span></button>`; }).join('')}<button class="ex-add" data-padd="exam">${icon('plus')}Exam</button></div>
     <div class="pl-bar">
-      <div class="pl-seg" data-group><button class="${S.planGroup !== 'subject' ? 'on' : ''}" data-v="date">${icon('calendar')}By date</button><button class="${S.planGroup === 'subject' ? 'on' : ''}" data-v="subject">${icon('folder')}By subject</button></div>
-      <div class="pl-bar-r"><label class="pl-done"><input type="checkbox" data-showdone ${S.planShowDone ? 'checked' : ''}><span>Show done</span></label><button class="btn small" data-subjects>${icon('folder')}Subjects</button></div>
+      <div class="pl-seg" data-group><button class="${!bySubj ? 'on' : ''}" data-v="date" title="Group by date">${icon('calendar')}Date</button><button class="${bySubj ? 'on' : ''}" data-v="subject" title="Group by subject">${icon('folder')}Subject</button></div>
+      ${!bySubj ? `<div class="rem-chips pl-filter"><button class="chip${!planFilter ? ' on' : ''}" data-filt="">All</button>${chipKeys.map(k => { const s = subjInfo(k), n = open.filter(t => subjKey(t) === k).length; return `<button class="chip${planFilter === k ? ' on' : ''}" data-filt="${esc(k)}" style="--c:${esc(s.color)}"><i class="sdot"></i>${esc(s.name)}${n ? `<small>${n}</small>` : ''}</button>`; }).join('')}</div>` : '<span style="flex:1"></span>'}
+      <button class="icon-btn pl-menu" data-pmenu title="More">${icon('more')}</button>
     </div>
-    <div class="rem-chips pl-filter"><button class="chip${!planFilter ? ' on' : ''}" data-filt="">All</button>${chipKeys.map(k => { const s = subjInfo(k), n = open.filter(t => subjKey(t) === k).length; return `<button class="chip${planFilter === k ? ' on' : ''}" data-filt="${esc(k)}" style="--c:${esc(s.color)}"><i class="sdot"></i>${esc(s.name)}${n ? `<small>${n}</small>` : ''}</button>`; }).join('')}<button class="chip pl-newsubj" data-newsubj>${icon('plus')}Subject</button></div>
-    <div class="plan-head"><h3 class="lib-sec">Exams</h3><div class="plan-btns"><button class="btn small" data-padd="exam">${icon('plus')}Exam</button></div></div>
-    ${fEx.length ? `<div class="exam-row">${fEx.map(examCard).join('')}</div>` : `<div class="pl-none">No upcoming exams${planFilter ? ' for ' + esc(subjInfo(planFilter).name) : ''}. Add one for a countdown and a study plan.</div>`}
-    <div class="plan-head"><h3 class="lib-sec">Tasks</h3>${S.planShowDone && all.some(t => t.done) ? `<div class="plan-btns"><button class="btn small" data-cleardone>Clear done</button></div>` : ''}</div>
-    ${tasksHtml}
-    ${pastEx.length ? `<details class="task-group"><summary class="tg-head">Past exams · ${pastEx.length}</summary><div class="exam-row">${pastEx.map(examCard).join('')}</div></details>` : ''}`;
+    ${tasksHtml}`;
   root._cmp.draw();
 };
 function wirePlanner2(root, box) {
   const again = () => renderPlanner(box);
-  root.addEventListener('change', e => { if (e.target.matches('[data-showdone]')) { S.planShowDone = e.target.checked; saveSettings(); again(); } });
   root.addEventListener('click', guard(async e => {
     const c = s => e.target.closest(s);
     if (c('[data-cmp]')) return;
     if (c('[data-group] [data-v]')) { S.planGroup = c('[data-v]').dataset.v; saveSettings(); return again(); }
     if (c('[data-filt]')) { planFilter = c('[data-filt]').dataset.filt; return again(); }
+    if (c('[data-sem]')) { if (await semesterForm()) again(); return; }
+    if (c('[data-pmenu]')) {
+      const v = await menu('Planner', [{ label: S.planShowDone ? 'Hide finished tasks' : 'Show finished tasks', value: 'done', icon: 'check' },
+        ...(PLAN.tasks.some(t => t.done) ? [{ label: 'Clear finished tasks', value: 'clear', icon: 'trash' }] : []),
+        { label: 'Subjects', value: 'subj', icon: 'folder', hint: 'Add, rename or recolor' }, { label: sem() ? 'Semester' : 'Set semester start', value: 'sem', icon: 'calendar', hint: 'Track which week you are in' },
+        { label: 'Add an exam', value: 'exam', icon: 'plus' }, { label: 'Paste a list', value: 'paste', icon: 'list', hint: 'e.g. your homework list from Notes' }]);
+      if (v === 'done') { S.planShowDone = !S.planShowDone; saveSettings(); }
+      if (v === 'clear') { const n = PLAN.tasks.filter(t => t.done).length; if (await confirmBox(`Remove ${n} finished task${n > 1 ? 's' : ''}?`, 'Clear')) { await loadPlan(); PLAN.tasks = PLAN.tasks.filter(t => !t.done); await savePlan(); } }
+      if (v === 'subj') await subjectsFlow();
+      if (v === 'sem') await semesterForm();
+      if (v === 'exam') await examForm(null, planFilter && !planFilter.includes(':') && planFilter !== 'general' ? planFilter : null);
+      if (v === 'paste') await pasteListFlow();
+      if (v) again(); return;
+    }
     if (c('[data-newsubj]')) { const f = await subjectForm(); if (f) { planFilter = f.id; await again(); } return; }
-    if (c('[data-subjects]')) { await subjectsFlow(); return again(); }
     if (c('[data-sedit]')) { if (await subjectForm(folderById(c('[data-sedit]').dataset.sedit))) again(); return; }
     if (c('[data-jump]')) { const j = c('[data-jump]').dataset.jump; planFilter = ''; S.planGroup = 'date'; saveSettings(); await again(); [...$$('.tg-head', root)].find(h => h.textContent.startsWith(j))?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
-    if (c('[data-cleardone]')) { const n = PLAN.tasks.filter(t => t.done).length; if (await confirmBox(`Remove ${n} finished task${n > 1 ? 's' : ''}?`, 'Clear')) { await loadPlan(); PLAN.tasks = PLAN.tasks.filter(t => !t.done); await savePlan(); again(); } return; }
     if (c('[data-sadd]')) { root._cmp.setSubj(c('[data-sadd]').dataset.sadd); $('[data-cmp]', root).scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
     if (c('[data-padd]')) { if (await examForm(null, planFilter && !planFilter.includes(':') && planFilter !== 'general' ? planFilter : null)) again(); return; }
     const ex = c('[data-exam]'); if (ex) { const x = PLAN.exams.find(y => y.id === ex.dataset.exam); if (x && await examMenu(x)) again(); return; }
@@ -715,11 +781,21 @@ function wirePlanner2(root, box) {
   }));
 }
 
+// ---------- the editor top bar never scrolls ----------
+function fitToolbar() {
+  const tb = $('.toolbar'); if (!tb || $('#editor').hidden) return;
+  for (let i = 1; i <= 5; i++) tb.classList.remove('tight' + i);
+  for (let i = 1; i <= 5 && tb.scrollWidth > tb.clientWidth + 1; i++) tb.classList.add('tight' + i);
+}
+
 // ---------- boot ----------
 function bootReminders() {
+  { const tb = $('.toolbar'); if (tb) { new ResizeObserver(() => fitToolbar()).observe(tb); } addEventListener('resize', fitToolbar); }
+  { const _o = openNotebook; openNotebook = async function (...a) { const r = await _o(...a); requestAnimationFrame(fitToolbar); return r; }; }
+  { const _u = updateToolbar; updateToolbar = function (...a) { const r = _u(...a); requestAnimationFrame(fitToolbar); return r; }; }
   const mk = id => { const b = document.createElement('button'); b.className = 'icon-btn rem-bell'; b.id = id; b.title = 'Reminders'; b.innerHTML = icon('bell') + '<span class="rem-badge"></span>'; b.onclick = () => openReminders(); return b; };
   $('#newBtn')?.before(mk('remLibBtn'));
-  $('#bookmarkBtn')?.before(mk('remEdBtn'));
+  $('#moreBtn')?.before(mk('remEdBtn'));
   remCheck(); setInterval(remCheck, 5 * 60e3);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { remCheck(); if (CS?.on && CS.dirty) calSyncNow(); } });
   addEventListener('online', () => { if (CS?.on && CS.dirty) calSyncNow(); });

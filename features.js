@@ -342,7 +342,7 @@ function moreRoot(box) {
   const i = currentIndex(), p = E.pages[i], { lesson, topic } = secAt(i), sec = topic || lesson;
   box.innerHTML = `<div class="more-head"><b>${esc(E.nb.title)}</b><span>Page ${i + 1} of ${E.pages.length}${sec ? ' · ' + esc(sec.title) : ''}</span></div>
     <div class="tile-sec">Insert</div><div class="tiles">${tile('table', 'table', 'Table')}${tile('stk', 'sticker', 'Stickers')}${tile('lay', 'layout', 'Page layout')}${tile('img', 'image', 'Image')}${tile('photos', 'photos', 'Photo pages')}${tile('doc', 'file', 'PDF / Word')}${E.clip ? tile('paste', 'paste', 'Paste') : ''}</div>
-    <div class="tile-sec">This page</div><div class="tiles">${tile('tpl', 'tpl', 'Template')}${tile('size', 'size', 'Size')}${tile('paper', 'palette', 'Paper')}${tile('bm', 'bookmark', p.bookmark ? 'Bookmarked' : 'Bookmark', p.bookmark ? 'on' : '')}
+    <div class="tile-sec">This page</div><div class="tiles">${tile('tpl', 'tpl', 'Template')}${tile('size', 'size', 'Size')}${tile('paper', 'palette', 'Paper')}${tile('addp', 'addpage', 'Add page')}${tile('bm', 'bookmark', p.bookmark ? 'Bookmarked' : 'Bookmark', p.bookmark ? 'on' : '')}${tile('pencil', 'hand', 'Pencil only', S.pencilOnly ? 'on' : '')}
       ${tile('dup', 'copy', 'Duplicate')}${tile('png', 'export', 'Save image')}${tile('selall', 'selall', 'Select all')}${tile('del', 'trash', 'Delete', 'danger')}</div>
     <div class="tile-sec">Notebook</div><div class="tiles">${tile('sec', 'layers', 'Lesson / topic')}${tile('saved', 'star', 'Saved items')}${tile('cover', 'palette', 'Cover')}${tile('rename', 'edit', 'Rename')}
       ${tile('pdf', 'export', 'Export PDF')}${tile('docx', 'file', 'Export Word')}</div>
@@ -361,7 +361,7 @@ async function moreAction(k, box) {
   closePopover();
   const act = {
     paste: async () => { const sr = scroller.getBoundingClientRect(), er = E.els.get(p.id).getBoundingClientRect(); await pasteClip(p, { x: 60, y: clamp((sr.top + 80 - er.top) / E.unit, 20, p.h - 40) }); },
-    bm: () => toggleBookmark(i), dup: () => duplicatePage(i), png: () => exportPagePng(i), selall: () => selectAll(), del: () => deletePage(i),
+    bm: () => toggleBookmark(i), addp: () => $('#addPageBtn').click(), pencil: () => $('#pencilBtn').click(), dup: () => duplicatePage(i), png: () => exportPagePng(i), selall: () => selectAll(), del: () => deletePage(i),
     sec: () => addSectionFlow({ level: 1 }), saved: () => setSideTab('saved'),
     cover: async () => { await flush(); await makeThumb(E.nb, E.pages); await coverEditor(E.nb); },
     rename: () => inlineRename($('#nbTitle'), E.nb.title, async v => { E.nb.title = v; await saveNb(); }),
