@@ -950,7 +950,7 @@ input[type=date], input[type=time] { width: 100%; box-sizing: border-box; }
 .chip.on .sdot { box-shadow: 0 0 0 1.5px #fff; }
 .rem-pick { position: relative; overflow: hidden; }
 .rem-pick input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; padding: 0; border: 0; }
-.rem-body { flex: 1; overflow-y: auto; margin: 0 -4px; padding: 0 4px; -webkit-overflow-scrolling: touch; }
+.rem-body { flex: 1; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
 .rem-body .task-list { margin-bottom: 8px; }
 .rem-foot { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; border-top: 1px solid var(--border); padding-top: 10px; flex-shrink: 0; }
 .rem-exams { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 2px 0 4px; }
@@ -965,7 +965,8 @@ input[type=date], input[type=time] { width: 100%; box-sizing: border-box; }
 .task.due-soon em { color: #f08c00; font-weight: 650; }
 .task.late { box-shadow: inset 3px 0 0 #e5484d; }
 .tk-note { font-size: 12px; opacity: .6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task.flash { animation: remFlash 1.4s ease-out; }
+.task { transition: background-color .9s ease-out; }
+.task.just-added { background-color: color-mix(in srgb, var(--accent) 18%, var(--surface)); transition: none; }
 @keyframes remFlash { 0%, 30% { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); } }
 .paste-prev { max-height: 38dvh; overflow: auto; margin-top: 10px; }
 .paste-prev .task input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--accent); }
@@ -1294,3 +1295,8 @@ body.reading .nb-title { display: block !important; flex: 1; min-width: 0; overf
 body.reading .tb-left { flex: 1; min-width: 0; }
 body.reading .text-item, body.reading .tbl { pointer-events: none; }
 body.reading .page { touch-action: pan-x pan-y; }
+
+/* v22: the notebook menu scrolls in one place only (the list) */
+.popover.pop-more { overflow: hidden; display: flex; flex-direction: column; max-height: min(78dvh, 640px); }
+.pop-more .mm-head, .pop-more .mm-tabs { flex-shrink: 0; }
+.pop-more .mm-list { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; overscroll-behavior: contain; }

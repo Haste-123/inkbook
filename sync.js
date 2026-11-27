@@ -200,7 +200,7 @@ async function syncNow({ full = false, progress = null } = {}) {
 // Show what arrived from the other device
 async function afterRemoteChanges(changed) {
   FOLDERS = await db.all('folders');
-  if (changed.has('blobs|meta:planner')) { await loadPlan(); remBadges?.(); }
+  if (changed.has('blobs|meta:planner')) { await loadPlan(); remBadges?.(); globalThis.calSyncSoon?.(1500); }
   if (E.nb) {
     const nbId = E.nb.id, touched = changed.has('notebooks|' + nbId) || [...changed].some(c => c.startsWith('pages|') && E.byId.has(c.slice(6)));
     if (touched && !active) {

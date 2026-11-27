@@ -129,7 +129,12 @@ function openReminders() {
       (open.length ? (S.planGroup === 'subject' ? subjectGroupsHtml(open) : dateGroupsHtml(open))
         : `<div class="rem-empty">${icon('bell')}<b>Nothing to remember</b><span>Type above and press Add. Words like <i>today</i>, <i>fri</i>, <i>27th</i>, <i>5pm</i> set the date for you.</span></div>`) +
       (done.length ? `<details class="task-group"><summary class="tg-head">Done · ${done.length}</summary><div class="task-list">${done.map(t => remRow(t)).join('')}</div></details>` : '');
-    if (flash) { const r = $(`[data-task="${flash}"]`, el); r?.classList.add('flash'); r?.scrollIntoView({ block: 'nearest' }); }
+    if (flash) {                         // highlight the new row briefly (no animation: iPad draws animated rows in the wrong place inside a scrolling panel)
+      const r = $(`[data-task="${flash}"]`, el), body = $('[data-body]', el); if (!r) return;
+      r.classList.add('just-added'); setTimeout(() => r.classList.remove('just-added'), 600);
+      const rb = r.getBoundingClientRect(), bb = body.getBoundingClientRect();
+      if (rb.top < bb.top || rb.bottom > bb.bottom) body.scrollTop += rb.top - bb.top - 40;
+    }
   };
   REM.redraw = drawList;
   REM.drawCal = () => { const b = $('[data-cal]', el); if (b) b.innerHTML = `${icon('calendar')}${CS?.on ? (CS.err ? '⚠️ Calendar' : 'Calendar ✓') : 'Add to Calendar'}`; };
@@ -520,7 +525,10 @@ async function gh(path, token, opt = {}) {
   const r = await fetch('https://api.github.com' + path, { ...opt, cache: 'no-store',
     headers: { Accept: 'application/vnd.github+json', Authorization: 'Bearer ' + token, ...(opt.body ? { 'Content-Type': 'application/json' } : {}) } });
   if (!r.ok) {
-    const e = new Error(r.status === 401 ? 'the GitHub key is wrong or has expired' : r.status === 404 ? 'not found: the key needs the “gist” permission' : r.status === 403 ? 'GitHub refused (the key needs the “gist” permission)' : 'GitHub error ' + r.status);
+    const e = new Error(r.status === 401 ? 'the calendar key was deleted or has expired. Paste a new one'
+      : r.status === 404 ? 'the calendar file is gone, or this key belongs to another GitHub account'
+      : r.status === 403 ? 'this key can’t edit Gists. Use a classic key with the “gist” box ticked (the notes sync key won’t work here)'
+      : 'GitHub error ' + r.status);
     e.status = r.status; throw e;
   }
   return r.status === 204 ? null : r.json();
@@ -538,14 +546,28 @@ function calSyncSoon(ms = 2500) {
   if (!CS?.on) return;
   CS.dirty = true; csSave(); clearTimeout(csTimer); csTimer = setTimeout(() => calSyncNow(), ms);
 }
+// Every Inkbook calendar file on the account (a second device may have made its own): all of them get updated
+async function inkbookGists(token) {
+  const list = await gh('/gists?per_page=100', token);
+  return list.filter(g => /^Inkbook calendar/.test(g.description || '') && g.files?.['inkbook.ics']).sort((a, b) => a.created_at.localeCompare(b.created_at));
+}
 async function calSyncNow(force = false) {
   if (!CS?.on || csBusy) return false;
-  if (!navigator.onLine) { CS.err = 'offline: will sync when you are back online'; csSave(); REM?.drawCal?.(); return false; }
+  if (!navigator.onLine) { CS.dirty = true; csSave(); return false; }        // not an error: it goes out when you're back online
   csBusy = true;
   try {
     await loadPlan();
     const ics = feedIcs(), h = csHash(ics);
-    if (force || h !== CS.hash) await gh(`/gists/${CS.gistId}`, CS.token, { method: 'PATCH', body: JSON.stringify({ files: { 'inkbook.ics': { content: ics } } }) });
+    if (!CS.scanAt || Date.now() - CS.scanAt > 6 * 3600e3) {
+      try { const gs = await inkbookGists(CS.token); CS.gists = [...new Set([CS.gistId, ...gs.map(g => g.id)])]; CS.scanAt = Date.now(); if (CS.gists.length > 1) force = true; } catch { }
+    }
+    if (force || h !== CS.hash || CS.err) {
+      await gh(`/gists/${CS.gistId}`, CS.token, { method: 'PATCH', body: JSON.stringify({ files: { 'inkbook.ics': { content: ics } } }) });
+      for (const id of (CS.gists || []).filter(x => x !== CS.gistId)) {
+        try { await gh(`/gists/${id}`, CS.token, { method: 'PATCH', body: JSON.stringify({ files: { 'inkbook.ics': { content: ics } } }) }); }
+        catch (e) { if (e.status === 404) CS.gists = CS.gists.filter(x => x !== id); }
+      }
+    }
     Object.assign(CS, { hash: h, dirty: false, last: Date.now(), err: '' }); csSave(); return true;
   } catch (e) {
     CS.err = e.message; csSave();
@@ -559,12 +581,12 @@ const agoText = t => { if (!t) return 'never'; const m = Math.round((Date.now() 
 async function calendarMenu() {
   if (CS?.on) {
     const v = await menu('Calendar sync is on', [
-      { head: CS.err ? '⚠️ ' + CS.err : 'Last updated ' + agoText(CS.last) },
-      { label: 'Update Calendar now', value: 'now', icon: 'convert', hint: 'Happens by itself after every change' },
+      { head: CS.err ? '⚠️ Last update failed: ' + CS.err : `Up to date · updated ${agoText(CS.last)}${(CS.gists || []).length > 1 ? ` · ${CS.gists.length} calendar links` : ''}` },
+      { label: CS.err ? 'Try again now' : 'Update Calendar now', value: 'now', icon: 'convert', hint: 'Happens by itself after every change, on any of your devices' },
       { label: 'Subscribe again / copy the link', value: 'sub', icon: 'calendar', hint: 'If the Inkbook calendar is missing on this iPad' },
       ...(CS.err ? [{ label: 'Paste a new GitHub key', value: 'key', icon: 'edit' }] : []),
       { label: 'Turn off Calendar sync', value: 'off', icon: 'trash', danger: true }]);
-    if (v === 'now') { toast('Updating Calendar…', 1200); if (await calSyncNow(true)) toast('📅 Calendar feed updated. iPad picks it up on its next refresh.', 3500); }
+    if (v === 'now') { toast('Updating Calendar…', 1200); CS.scanAt = 0; if (await calSyncNow(true)) toast('📅 Done. Calendar shows it on its next refresh (usually within 15–60 min).', 4000); else toast('⚠️ ' + CS.err, 6000); }
     if (v === 'sub') calSubscribeStep();
     if (v === 'key') await calSetupFlow(true);
     if (v === 'off' && await confirmBox('Stop syncing and delete the private calendar link? The Inkbook calendar on your iPad will empty. You can then remove it in Settings → Calendar → Accounts.', 'Turn off')) {
@@ -602,9 +624,13 @@ function calSetupFlow(keyOnly = false) {
           await gh(`/gists/${CS.gistId}`, token);       // make sure the new key can reach the same calendar
           Object.assign(CS, { token, user: user.login, err: '' }); csSave(); await calSyncNow(true);
         } else {
-          const ics = feedIcs();
-          const g = await gh('/gists', token, { method: 'POST', body: JSON.stringify({ description: 'Inkbook calendar (made by the Inkbook app)', public: false, files: { 'inkbook.ics': { content: ics } } }) });
-          CS = { on: true, token, user: user.login, gistId: g.id, hash: csHash(ics), last: Date.now(), dirty: false, err: '' }; csSave();
+          const ics = feedIcs(), have = await inkbookGists(token);
+          let id;
+          if (have.length) {   // another device already made one: use the same calendar, so both keep it up to date
+            id = have[0].id; await gh(`/gists/${id}`, token, { method: 'PATCH', body: JSON.stringify({ files: { 'inkbook.ics': { content: ics } } }) });
+            toast('📅 Found your Inkbook calendar: this device will keep it up to date too', 4000);
+          } else id = (await gh('/gists', token, { method: 'POST', body: JSON.stringify({ description: 'Inkbook calendar (made by the Inkbook app)', public: false, files: { 'inkbook.ics': { content: ics } } }) })).id;
+          CS = { on: true, token, user: user.login, gistId: id, gists: have.map(g => g.id).concat(have.length ? [] : [id]), scanAt: Date.now(), hash: csHash(ics), last: Date.now(), dirty: false, err: '' }; csSave();
         }
         ok = true; m.close();
       } catch (e) { b.disabled = false; b.textContent = 'Connect'; toast('⚠️ Couldn’t connect: ' + e.message, 5000); }
@@ -818,7 +844,8 @@ function bootReminders() {
   $('#newBtn')?.before(mk('remLibBtn'));
   $('#moreBtn')?.before(mk('remEdBtn'));
   remCheck(); setInterval(remCheck, 5 * 60e3);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { remCheck(); if (CS?.on && CS.dirty) calSyncNow(); } });
+  if (CS?.on) setTimeout(() => calSyncNow(), 4000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { remCheck(); if (CS?.on && (CS.dirty || CS.err)) calSyncNow(); } });
   addEventListener('online', () => { if (CS?.on && CS.dirty) calSyncNow(); });
   if (CS?.on && CS.dirty) setTimeout(calSyncNow, 3000);
   navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.openReminders && !REM?.m.el.isConnected) openReminders(); });
