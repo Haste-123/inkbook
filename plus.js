@@ -428,38 +428,37 @@ let REC = null, PLAY = null;
 function stampRec(o) { if (REC && E.nb && REC.nbId === E.nb.id) { o.ra = REC.id; o.rt = +((Date.now() - REC.t0) / 1000).toFixed(2); } }
 const fmtDur = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
 // Lecture mode: the microphone goes through a small sound chain before it is saved.
-//  · The audio is held back 0.15 s, so when the Pencil touches the glass we already know and can turn the
-//    volume down for that split second before the "tock" reaches the recording.
+//  · declick.js (an AudioWorklet) removes only the click of the Pencil hitting the glass, the voice around
+//    it is left alone. Pencil touch-downs are passed to it as hints.
 //  · A high-pass filter removes the low thump that travels through the iPad's body and the table.
-//  · A leveler + boost lifts a lecturer standing a few metres away; a limiter catches anything loud.
+//  · A gentle leveler + boost lifts a lecturer a few metres away; a limiter catches anything loud.
 // iPad's own call-style voice processing is switched off: it is tuned for a voice right at the mic and
 // treats a distant speaker as noise.
-const LOOK = 0.15;
 async function lectureChain(mic) {
   const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
   const ac = new AC(); await ac.resume().catch(() => { });
   const node = (fn, set) => { const n = fn(); for (const [k, v] of Object.entries(set)) n[k].value !== undefined ? (n[k].value = v) : (n[k] = v); return n; };
   const src = ac.createMediaStreamSource(mic);
-  const hp = node(() => ac.createBiquadFilter(), { type: 'highpass', frequency: 120, Q: 0.7 });
-  const lp = node(() => ac.createBiquadFilter(), { type: 'lowpass', frequency: 7500, Q: 0.7 });
-  const delay = ac.createDelay(1); delay.delayTime.value = LOOK;
-  const duck = ac.createGain();
-  const level = node(() => ac.createDynamicsCompressor(), { threshold: -42, knee: 12, ratio: 5, attack: 0.004, release: 0.3 });
-  const boost = ac.createGain(); boost.gain.value = 3.2;
+  const hp = node(() => ac.createBiquadFilter(), { type: 'highpass', frequency: 110, Q: 0.7 });
+  const lp = node(() => ac.createBiquadFilter(), { type: 'lowpass', frequency: 8000, Q: 0.7 });
+  let dc = null;
+  try { await ac.audioWorklet.addModule('declick.js'); dc = new AudioWorkletNode(ac, 'inkbook-declick', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] }); }
+  catch (e) { console.warn('declick unavailable', e); }
+  const level = node(() => ac.createDynamicsCompressor(), { threshold: -40, knee: 14, ratio: 4, attack: 0.01, release: 0.45 });
+  const boost = ac.createGain(); boost.gain.value = 3;
   const limit = node(() => ac.createDynamicsCompressor(), { threshold: -4, knee: 0, ratio: 20, attack: 0.001, release: 0.08 });
   const dest = ac.createMediaStreamDestination();
-  src.connect(hp); hp.connect(lp); lp.connect(delay); delay.connect(duck); duck.connect(level); level.connect(boost); boost.connect(limit); limit.connect(dest);
+  src.connect(hp); hp.connect(lp);
+  if (dc) { lp.connect(dc); dc.connect(level); } else lp.connect(level);
+  level.connect(boost); boost.connect(limit); limit.connect(dest);
   const ctxTime = evT => {           // page time (event.timeStamp, ms) → audio clock (s)
     const o = ac.getOutputTimestamp?.();
     return o?.performanceTime ? o.contextTime + (evT - o.performanceTime) / 1000 : ac.currentTime + (evT - performance.now()) / 1000;
   };
   return {
-    ac, stream: dest.stream,
-    tap(evT) {                       // the Pencil just touched the glass: dip that moment (−20 dB for ~90 ms)
-      const g = duck.gain, t = Math.max(ac.currentTime + 0.002, ctxTime(evT) + LOOK - 0.025);
-      g.cancelScheduledValues(t); g.setValueAtTime(1, t); g.linearRampToValueAtTime(0.1, t + 0.004);
-      g.setValueAtTime(0.1, t + 0.085); g.linearRampToValueAtTime(1, t + 0.11);
-    },
+    ac, stream: dest.stream, declick: !!dc,
+    tap(evT) { dc?.port.postMessage({ hint: ctxTime(evT) }); },
+    stats() { return new Promise(res => { if (!dc) return res(null); dc.port.onmessage = e => res(e.data); dc.port.postMessage({ stats: 1 }); setTimeout(() => res(null), 500); }); },
     stop() { try { src.disconnect(); } catch { } ac.close().catch(() => { }); },
   };
 }
