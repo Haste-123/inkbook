@@ -122,7 +122,7 @@ function merge3(b, l, r) {
 
 // ---------- the sync ----------
 let syncing = false, syncAgain = false, syncT = null;
-function syncSoon(ms = 8000) { if (!SY?.on) return; clearTimeout(syncT); syncT = setTimeout(() => syncNow(), ms); }
+function syncSoon(ms = 8000) { if (!SY?.on) return; clearTimeout(syncT); const go = () => { if (globalThis.inkBusy?.(3000)) { syncT = setTimeout(go, 2000); return; } syncNow().catch(() => { }); }; syncT = setTimeout(go, ms); }
 async function loadState() { return (await db.get('blobs', SY_STATE)) || { head: null, base: {}, bfp: {} }; }
 const saveState = st => rawPut('blobs', st, SY_STATE);
 
@@ -379,7 +379,7 @@ function bootSync() {
   $('#settingsBtn')?.before(side);
   setSyncStatus(); setInterval(() => setSyncStatus(syncing ? 'syncing' : undefined), 60000);
   // while Inkbook is open, check for changes from your other device every minute
-  setInterval(() => { if (SY?.on && !document.hidden && !syncing && navigator.onLine) syncNow().catch(() => { }); }, 60000);
+  setInterval(() => { if (SY?.on && !document.hidden && !syncing && navigator.onLine && !globalThis.inkBusy?.(3000)) syncNow().catch(() => { }); }, 60000);
   addEventListener('online', () => { setSyncStatus(); syncSoon(1000); });
   addEventListener('offline', () => setSyncStatus());
   document.addEventListener('visibilitychange', () => { if (!SY?.on) return; if (document.hidden) { if (syDirty.size) syncNow().catch(() => { }); } else syncSoon(800); });

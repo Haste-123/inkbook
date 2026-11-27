@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '38';
+const APP_VERSION = '39';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -228,8 +228,39 @@ function penSeg(ctx, st, s, i, n) {
   ctx.lineWidth = Math.max(0.6, widthAt(st, q[j + 2]) * s);
   ctx.beginPath(); ctx.moveTo(sx * s, sy * s); ctx.quadraticCurveTo(q[j] * s, q[j + 1] * s, ex * s, ey * s); ctx.stroke();
 }
+// Each finished stroke's outline is built once (in page units) and reused for every repaint, at any zoom.
+// Strokes are never changed in place (moving or erasing makes new ones), so the stroke itself is the key.
+const pathCache = new WeakMap();
+function strokePaths(st) {
+  let c = pathCache.get(st); if (c && c.p === st.p && c.n === st.p.length && c.w === st.w && c.ps === st.ps) return c;
+  const q = st.p, n = q.length / 3, runs = [];
+  if (st.poly || st.t === 'hl') {
+    const P = new Path2D(); P.moveTo(q[0], q[1]); if (n === 1) P.lineTo(q[0] + 0.01, q[1]);
+    if (st.poly) for (let i = 1; i < n; i++) P.lineTo(q[i * 3], q[i * 3 + 1]);
+    else { for (let i = 1; i < n - 1; i++) { const j = i * 3; P.quadraticCurveTo(q[j], q[j + 1], (q[j] + q[j + 3]) / 2, (q[j + 1] + q[j + 4]) / 2); } if (n > 1) P.lineTo(q[(n - 1) * 3], q[(n - 1) * 3 + 1]); }
+    runs.push([st.w, P]);
+  } else {
+    // pieces whose width rounds to the same value share one path (pressure changes smoothly, so this looks the same)
+    let cur = -1, P = null;
+    for (let i = 1; i < n; i++) {
+      const j = i * 3, w = widthAt(st, q[j + 2]), qw = Math.round(w * 25) / 25;
+      const sx = i === 1 ? q[0] : (q[j - 3] + q[j]) / 2, sy = i === 1 ? q[1] : (q[j - 2] + q[j + 1]) / 2;
+      const last = i === n - 1, ex = last ? q[j] : (q[j] + q[j + 3]) / 2, ey = last ? q[j + 1] : (q[j + 1] + q[j + 4]) / 2;
+      if (qw !== cur) { P = new Path2D(); P.moveTo(sx, sy); runs.push([qw, P]); cur = qw; }
+      P.quadraticCurveTo(q[j], q[j + 1], ex, ey);
+    }
+  }
+  c = { p: st.p, n: st.p.length, w: st.w, ps: st.ps, runs }; pathCache.set(st, c); return c;
+}
 function drawStroke(ctx, st, s, dark) {
   const q = st.p, n = q.length / 3; if (!n) return;
+  if (n > 1 || st.poly || st.t === 'hl') {
+    ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = st.c;
+    if (st.t === 'hl') { ctx.globalAlpha *= dark ? 0.45 : 0.4; if (!dark) ctx.globalCompositeOperation = 'multiply'; }
+    ctx.scale(s, s); const minW = 0.6 / s;
+    for (const [w, P] of strokePaths(st).runs) { ctx.lineWidth = st.poly || st.t === 'hl' ? w : Math.max(minW, w); ctx.stroke(P); }
+    ctx.restore(); return;
+  }
   ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = st.c; ctx.fillStyle = st.c;
   if (st.t === 'hl') { ctx.globalAlpha = dark ? 0.45 : 0.4; if (!dark) ctx.globalCompositeOperation = 'multiply'; }
   if (st.poly || st.t === 'hl') {
@@ -717,7 +748,7 @@ const scroller = $('#scroller'), pagesEl = $('#pages');
 const live = document.createElement('canvas'); live.className = 'live';
 const lctx = live.getContext('2d');
 const tail = document.createElement('canvas'); tail.className = 'live'; const tctx = tail.getContext('2d'); let tailBox = null;
-function clearTail() { if (tailBox) { tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(...tailBox); tailBox = null; } tail.remove(); }
+function clearTail() { if (tailBox) { tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(...tailBox); tailBox = null; } }
 // The ink is drawn piece by piece; the last piece waits for the next point. This draws that missing bit
 // (and where the Pencil is heading, when the iPad predicts it) straight away, on a layer that is redrawn each time.
 function drawTail(host, a, s) {
@@ -783,7 +814,11 @@ let lastNbSaved = '';
 async function saveNb() { if (!E.nb) return; E.nb.pages = E.pages.map(p => p.id); E.nb.coverKey = E.pages[0]?.bgKey || null; const s = JSON.stringify(E.nb); if (s === lastNbSaved) return; lastNbSaved = s; await db.put('notebooks', E.nb); }
 
 const dirty = new Set(); let saveT = null;
-function markDirty(p) { p.rev = (p.rev || 0) + 1; dirty.add(p); clearTimeout(saveT); saveT = setTimeout(flush, 700); if (S.sideOpen) queueThumb(p); }
+let dirtySince = 0, lastInkAt = 0;
+const inkBusy = (ms = 1200) => !!active || performance.now() - lastInkAt < ms;
+globalThis.inkBusy = inkBusy;
+function markDirty(p) { p.rev = (p.rev || 0) + 1; if (!dirty.size) dirtySince = performance.now(); dirty.add(p); clearTimeout(saveT); saveT = setTimeout(idleFlush, 700); if (S.sideOpen) queueThumb(p); }
+function idleFlush() { if (dirty.size && inkBusy() && performance.now() - dirtySince < 10000) { saveT = setTimeout(idleFlush, 400); return; } flush(); }
 async function flush() {
   clearTimeout(saveT); const list = [...dirty]; dirty.clear();
   for (const p of list) await db.put('pages', p);
@@ -851,16 +886,42 @@ function pageRegion(el, margin = REG_MARGIN) {
   if (x1 - x0 < 1 || y1 - y0 < 1) return null;
   return { x0: Math.floor(x0), y0: Math.floor(y0), x1: Math.ceil(x1), y1: Math.ceil(y1) };
 }
-function paint(p) {
+const paintScratch = document.createElement('canvas');
+function paint(p, how) {
   const el = E.els.get(p?.id); if (!el) return;
   const c = el.querySelector('canvas.ink');
+  const moving = E.moving && E.sel?.page === p;
+  if (Array.isArray(how) && !moving && el._reg && c.width) { paintBox(p, el, c, how); el._rev = p.rev; return; }
   const g = pageRegion(el);
   if (!g) { c.width = c.height = 0; el._reg = null; return; }
   const cw = g.x1 - g.x0, ch = g.y1 - g.y0;
   let r = Math.min(devicePixelRatio || 1, 3);
   if (cw * ch * r * r > MAX_PX) r = Math.sqrt(MAX_PX / (cw * ch));
   const W = Math.max(1, Math.round(cw * r)), H = Math.max(1, Math.round(ch * r));
+  const old = el._reg;
+  if (how === 'shift' && old && !moving && c.width && el._rev === p.rev && el._r === r && el._unit === E.unit && Number.isInteger(r)
+      && Math.max(g.x0, old.x0) < Math.min(g.x1, old.x1) && Math.max(g.y0, old.y0) < Math.min(g.y1, old.y1)) {
+    if (old.x0 === g.x0 && old.y0 === g.y0 && old.x1 === g.x1 && old.y1 === g.y1) return;
+    const sc = paintScratch.getContext('2d');
+    if (paintScratch.width !== c.width || paintScratch.height !== c.height) { paintScratch.width = c.width; paintScratch.height = c.height; } else sc.clearRect(0, 0, c.width, c.height);
+    sc.drawImage(c, 0, 0);
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    const ctx = c.getContext('2d'); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    ctx.clearRect(0, 0, W, H); ctx.drawImage(paintScratch, (old.x0 - g.x0) * r, (old.y0 - g.y0) * r);
+    c.style.left = g.x0 + 'px'; c.style.top = g.y0 + 'px'; c.style.width = cw + 'px'; c.style.height = ch + 'px';
+    el._scale = r * E.unit; el._ox = g.x0 / E.unit; el._oy = g.y0 / E.unit; el._reg = g;
+    // the parts that just came into view (CSS px on the page) → page units
+    const u = E.unit, my0 = Math.max(g.y0, old.y0), my1 = Math.min(g.y1, old.y1), strips = [];
+    if (g.y0 < old.y0) strips.push([g.x0, g.y0, g.x1, old.y0]);
+    if (g.y1 > old.y1) strips.push([g.x0, old.y1, g.x1, g.y1]);
+    if (g.x0 < old.x0) strips.push([g.x0, my0, old.x0, my1]);
+    if (g.x1 > old.x1) strips.push([old.x1, my0, g.x1, my1]);
+    for (const b of strips) paintBox(p, el, c, b.map(v => v / u));
+    if (live.parentNode === el) scheduleLive();
+    return;
+  }
   if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+  el._r = r; el._unit = E.unit; el._rev = p.rev;
   c.style.left = g.x0 + 'px'; c.style.top = g.y0 + 'px'; c.style.width = cw + 'px'; c.style.height = ch + 'px';
   el._scale = (W / cw) * E.unit;                     // canvas pixels per page unit
   el._ox = g.x0 / E.unit; el._oy = g.y0 / E.unit; el._reg = g;
@@ -868,19 +929,30 @@ function paint(p) {
   renderPage(c.getContext('2d'), p, el._scale, { skip: sel?.strokes, skipImg: sel?.images, ox: el._ox, oy: el._oy, view: [el._ox, el._oy, el._ox + cw / E.unit, el._oy + ch / E.unit] });
   if (live.parentNode === el) scheduleLive();
 }
+function paintBox(p, el, c, b) {
+  const s = el._scale, ox = el._ox * s, oy = el._oy * s;
+  const X0 = Math.max(0, Math.floor(b[0] * s - ox)), Y0 = Math.max(0, Math.floor(b[1] * s - oy)), X1 = Math.min(c.width, Math.ceil(b[2] * s - ox)), Y1 = Math.min(c.height, Math.ceil(b[3] * s - oy));
+  if (X1 <= X0 || Y1 <= Y0) return;
+  const ctx = c.getContext('2d'); ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.beginPath(); ctx.rect(X0, Y0, X1 - X0, Y1 - Y0); ctx.clip();
+  renderPage(ctx, p, s, { ox: el._ox, oy: el._oy, view: [(X0 + ox) / s, (Y0 + oy) / s, (X1 + ox) / s, (Y1 + oy) / s] });
+  ctx.restore();
+}
 // When scrolling brings an unpainted part of a page into view, repaint that page
 function checkRegions() {
   for (const id of E.visible) {
     const el = E.els.get(id), g = el && pageRegion(el, 0.04), have = el?._reg;
     if (!g) continue;
-    if (!have || g.x0 < have.x0 || g.y0 < have.y0 || g.x1 > have.x1 || g.y1 > have.y1) schedulePaint(E.byId.get(id));
+    if (!have || g.x0 < have.x0 || g.y0 < have.y0 || g.x1 > have.x1 || g.y1 > have.y1) schedulePaint(E.byId.get(id), 'shift');
   }
 }
 // Sets a canvas context to draw in page units for the painted region of a page
 function setPageTransform(ctx, el) { const s = el._scale || 1; ctx.setTransform(1, 0, 0, 1, -(el._ox || 0) * s, -(el._oy || 0) * s); }
 const paintQ = new Set(); let paintRaf = 0;
-function schedulePaint(p) {
+const paintHow = new Map();
+function schedulePaint(p, how) {
   if (!p) return;
+  if (!paintQ.has(p)) paintHow.set(p, how);
+  else { const cur = paintHow.get(p); if (cur !== undefined && cur !== how) paintHow.set(p, Array.isArray(cur) && Array.isArray(how) ? [Math.min(cur[0], how[0]), Math.min(cur[1], how[1]), Math.max(cur[2], how[2]), Math.max(cur[3], how[3])] : undefined); }
   paintQ.add(p);
   if (!paintRaf) paintRaf = requestAnimationFrame(runPaintQ);
 }
@@ -889,7 +961,7 @@ function runPaintQ() {
   const sr = scroller.getBoundingClientRect(), mid = sr.top + sr.height / 2;
   const dist = p => { const r = E.els.get(p.id)?.getBoundingClientRect(); return r ? (mid < r.top ? r.top - mid : mid > r.bottom ? mid - r.bottom : 0) : 1e9; };
   const l = [...paintQ].sort((a, b) => dist(a) - dist(b)), t0 = performance.now();
-  for (const p of l) { if (performance.now() - t0 > 10 && paintQ.size < l.length) break; paintQ.delete(p); paint(p); }
+  for (const p of l) { if (performance.now() - t0 > 10 && paintQ.size < l.length) break; paintQ.delete(p); const h = paintHow.get(p); paintHow.delete(p); paint(p, h); }
   if (paintQ.size) paintRaf = requestAnimationFrame(runPaintQ);
 }
 function refreshPage(p) { const el = E.els.get(p.id); if (!el) return; renderTexts(p, el); if (E.visible.has(p.id)) paint(p); }
@@ -1315,11 +1387,12 @@ function onMove(e) {
   // only a Pencil that is touching the screen counts (newer iPads also report the Pencil hovering above it)
   if (e.pointerType === 'pen' && (e.buttons || e.pressure > 0)) lastPenAt = performance.now();
   const a = active; if (!a || e.pointerId !== a.id) return;
+  lastInkAt = performance.now();
   const ce = e.getCoalescedEvents?.(); const list = ce && ce.length ? ce : [e];
   const pt = toPt(a, e);
   if (a.mode === 'ink') {
     if (a.straight) { const s0 = a.start; a.stroke.p = [+s0.x.toFixed(1), +s0.y.toFixed(1), 0.5, +pt.x.toFixed(1), +pt.y.toFixed(1), 0.5]; }
-    else { list.forEach(ev => addPoint(a, ev)); const pe = e.getPredictedEvents?.(); a.pred = pe?.length ? pe.slice(-2).map(ev => { const q = toPt(a, ev); return [q.x, q.y]; }) : null; }
+    else { list.forEach(ev => addPoint(a, ev)); const pe = e.getPredictedEvents?.(); a.pred = pe?.length ? pe.slice(-2).map(ev => { const q = toPt(a, ev); return [q.x, q.y]; }) : guessAhead(a, list); }
     if (a.anchor && Math.hypot(pt.x - a.anchor.x, pt.y - a.anchor.y) > 3) { a.anchor = pt; armHold(a); }
   } else if (a.mode === 'snapped') { if (a.snap.kind === 'line') a.stroke.p = shapePts('line', a.snap.x0, a.snap.y0, pt.x, pt.y); }
   else if (a.mode === 'shape') { const q = { x: clamp(pt.x, 0, a.page.w), y: clamp(pt.y, 0, a.page.h) }; a.end = q; a.stroke.p = shapePts(S.shape, a.start.x, a.start.y, q.x, q.y); }
@@ -1342,9 +1415,18 @@ function onMove(e) {
   if (a.mode === 'ink' && a.stroke.t === 'pen' && !a.stroke.poly) drawLive();   // pen ink: draw now, not at the next frame
   else scheduleLive();
 }
+// where the pen will be in about one frame, from how fast it moved over the last few events
+function guessAhead(a, list) {
+  const h = (a.hist ||= []); for (const ev of list) { const q = toPt(a, ev); h.push([q.x, q.y, ev.timeStamp]); }
+  while (h.length > 2 && h[h.length - 1][2] - h[0][2] > 40) h.shift();
+  if (h.length < 2) return null; const [x0, y0, t0] = h[0], [x1, y1, t1] = h[h.length - 1], dt = t1 - t0; if (dt < 6) return null;
+  let dx = (x1 - x0) / dt * 14, dy = (y1 - y0) / dt * 14; const d = Math.hypot(dx, dy), cap = 10;
+  if (d < 0.3) return null; if (d > cap) { dx *= cap / d; dy *= cap / d; }
+  return [[clamp(x1 + dx, 0, a.page.w), clamp(y1 + dy, 0, a.page.h)]];
+}
 function onUp(e) {
   const a = active; if (!a || e.pointerId !== a.id) return;
-  active = null; clearTimeout(a.holdT);
+  active = null; lastInkAt = performance.now(); clearTimeout(a.holdT);
   try { scroller.releasePointerCapture(e.pointerId); } catch { }
   const p = a.page;
   if (a.mode === 'text') { if (e.type === 'pointerup') createText(p, a.pageEl, a.pt); }
@@ -1353,10 +1435,10 @@ function onUp(e) {
     if (a.stroke.p.length && !tiny) {
       const before = snap(p); globalThis.stampRec?.(a.stroke); p.strokes.push(a.stroke); pushUndo(p, before);
       const c = a.pageEl.querySelector('canvas.ink');
-      if (c.width) { const cx = c.getContext('2d'); setPageTransform(cx, a.pageEl); drawStroke(cx, a.stroke, a.pageEl._scale, isDark(p.paperColor)); }
+      if (c.width) { const cx = c.getContext('2d'); setPageTransform(cx, a.pageEl); drawStroke(cx, a.stroke, a.pageEl._scale, isDark(p.paperColor)); if (a.pageEl._rev === p.rev - 1 && !paintQ.has(p)) a.pageEl._rev = p.rev; }
     }
   }
-  else if (a.mode === 'erase' && a.changed) pushUndo(p, a.before);
+  else if (a.mode === 'erase' && a.changed) { const ok = a.pageEl._rev === p.rev && !paintQ.has(p); pushUndo(p, a.before); if (ok) a.pageEl._rev = p.rev; }
   else if (a.mode === 'lasso') finishLasso(a);
   else if (a.mode === 'move' || a.mode === 'scale') {
     E.moving = false;
@@ -1376,9 +1458,11 @@ function cancelActive() {
 function eraseAt(a, x, y) {
   const p = a.page, r = sz('eraser') / 2, precise = S.eraserMode === 'precise';
   let changed = false; const out = [];
+  let box = null;
   for (const st of p.strokes) {
     if ((S.eraseHlOnly && st.t !== 'hl') || !hitStroke(st, x, y, r)) { out.push(st); continue; }
-    changed = true;
+    changed = true; const bb = bbox(st), m = st.w * 2 + 2;
+    box = box ? [Math.min(box[0], bb[0] - m), Math.min(box[1], bb[1] - m), Math.max(box[2], bb[2] + m), Math.max(box[3], bb[3] + m)] : [bb[0] - m, bb[1] - m, bb[2] + m, bb[3] + m];
     if (!precise) continue;
     const rr = r + st.w * 0.5, q = densify(st.p, Math.max(1.5, r * 0.4));
     let run = [];
@@ -1388,7 +1472,7 @@ function eraseAt(a, x, y) {
     }
     cut();
   }
-  if (changed) { p.strokes = out; a.changed = true; schedulePaint(p); }
+  if (changed) { p.strokes = out; a.changed = true; schedulePaint(p, box); }
 }
 async function clearPage() {
   const p = E.pages[currentIndex()];
@@ -1402,7 +1486,8 @@ function drawLive() {
   liveQueued = false;
   const a = active && active.mode !== 'text' ? active : null;
   const host = (a?.mode === 'move' && a.tgtEl) || a?.pageEl || (laser.pts.length && laser.el) || (E.sel && E.els.get(E.sel.page.id)) || null;
-  if (!host || !host.isConnected) { live.remove(); clearTail(); return; }
+  if (!host || !host.isConnected) { if (live.isConnected && live._dirty) { lctx.setTransform(1, 0, 0, 1, 0, 0); lctx.clearRect(0, 0, live.width, live.height); live._dirty = false; } clearTail(); return; }
+  live._dirty = true;
   const c = host.querySelector('canvas.ink');
   let fresh = false;
   if (live.parentNode !== host) { host.appendChild(live); fresh = true; }
