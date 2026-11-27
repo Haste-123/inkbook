@@ -240,6 +240,7 @@ async function syncNow({ full = false, progress = null } = {}) {
 }
 // Show what arrived from the other device
 async function afterRemoteChanges(changed) {
+  if ([...changed].some(c => c.startsWith('pages|'))) globalThis.resetSearchIndex?.();   // pages arrived from the other device
   FOLDERS = await db.all('folders');
   if (changed.has('blobs|meta:planner')) { await loadPlan(); remBadges?.(); globalThis.calSyncSoon?.(1500); REM?.redraw?.(); }
   if (E.nb) {

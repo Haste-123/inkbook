@@ -213,6 +213,7 @@ function polyfit(xs, ys, order) {
 const cf = n => { const t = fmtN(n); return t === '1' ? '' : t === '-1' ? '−' : t; };   // coefficient: hide a leading 1
 const rSquared = (ys, fx) => { const m = ys.reduce((a, b) => a + b, 0) / ys.length; let sr = 0, st = 0; ys.forEach((y, i) => { sr += (y - fx[i]) ** 2; st += (y - m) ** 2; }); return st ? 1 - sr / st : 1; };
 function polyEq(c) {
+  const big = Math.max(...c.map(Math.abs)); c = c.map(v => Math.abs(v) < big * 1e-9 ? 0 : v);   // rounding noise like 3e-15 is really 0
   let s = '';
   for (let k = c.length - 1; k >= 0; k--) {
     const v = c[k]; if (v === 0 && c.length > 1) continue;
@@ -242,7 +243,7 @@ function fitTrend(pts, kind, order = 2) {
   if (kind === 'log') {           // y = a + b ln x
     const c = polyfit(xs.map(Math.log), ys, 1); if (!c) return { err: 'cannot fit these numbers' };
     const f = x => c[0] + c[1] * Math.log(x);
-    return { f, eq: `y = ${cf(c[1])}ln(x)${fmtN(c[0]) === '0' ? '' : ` ${c[0] < 0 ? '−' : '+'} ${fmtN(Math.abs(c[0]))}`}`, r2: rSquared(ys, xs.map(f)) };
+    return { f, eq: `y = ${cf(c[1])}ln(x)${fmtN(c[0]) === '0' || Math.abs(c[0]) < Math.abs(c[1]) * 1e-9 ? '' : ` ${c[0] < 0 ? '−' : '+'} ${fmtN(Math.abs(c[0]))}`}`, r2: rSquared(ys, xs.map(f)) };
   }
   if (kind === 'power') {         // ln y = ln a + b ln x
     const lx = xs.map(Math.log), c = polyfit(lx, ys.map(Math.log), 1); if (!c) return { err: 'cannot fit these numbers' };

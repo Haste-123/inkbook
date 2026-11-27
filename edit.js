@@ -191,6 +191,19 @@ function refreshSavedBoxes(pages) {
     return r;
   };
 }
+// tapping a saved object selects just that object, even if other things are underneath it
+{
+  const _ho = hitObject;
+  hitObject = function (p, pt, strokesToo) {
+    const items = (E.nb?.items || []).filter(it => it.pageId === p.id);
+    for (let i = items.length - 1; i >= 0; i--) {                    // the most recently saved is on top
+      const id = items[i].id, b = groupBox(p, id); if (!b) continue;
+      if (pt.x >= b[0] - 4 && pt.x <= b[2] + 4 && pt.y >= b[1] - 4 && pt.y <= b[3] + 4)
+        return { strokes: new Set(p.strokes.filter(o => o.g === id)), images: new Set(p.images.filter(o => o.g === id)), texts: new Set(p.texts.filter(o => o.g === id)), tables: new Set((p.tables || []).filter(o => o.g === id)) };
+    }
+    return _ho(p, pt, strokesToo);
+  };
+}
 // copies are their own thing (not part of the saved item)
 {
   const _cs = copySel;
@@ -239,7 +252,25 @@ function repaintSoon(layer, ms = 140) {
   const _rt = renderTexts; renderTexts = function (p, el) { const r = _rt(p, el); repaintSoon(el?.querySelector('.text-layer')); return r; };
 }
 
+// ---------- a small text index for library search ----------
+// Search only needs the words on each page (typed text, PDF text, recognised handwriting), never the ink,
+// so it keeps just those in memory instead of reading every page of every notebook each time you type.
+let SIDX = null, sidxBuilding = null;
+const slim = p => ({ id: p.id, notebookId: p.notebookId, texts: (p.texts || []).map(t => ({ text: t.text || '', x: t.x, y: t.y })), pdfWords: p.pdfWords, ocr: p.ocr?.words ? { words: p.ocr.words } : null });
+async function searchPages() {
+  if (SIDX) return [...SIDX.values()];
+  sidxBuilding ||= db.all('pages').then(ps => { SIDX = new Map(ps.map(p => [p.id, slim(p)])); sidxBuilding = null; return SIDX; });
+  await sidxBuilding; return [...SIDX.values()];
+}
+{
+  const put0 = db.put, del0 = db.del;
+  db.put = async (n, v, k) => { const r = await put0(n, v, k); if (n === 'pages' && SIDX && v?.id) SIDX.set(v.id, slim(v)); return r; };
+  db.del = async (n, k) => { const r = await del0(n, k); if (n === 'pages' && SIDX) SIDX.delete(k); return r; };
+}
+globalThis.resetSearchIndex = () => { SIDX = null; };
+
 function bootEdit() {
+  setTimeout(() => searchPages().catch(() => { }), 4000);          // build it in the background, so even the first search is quick
   const _open = openNotebook;
   openNotebook = async function (...a) { const r = await _open(...a); requestAnimationFrame(() => groupOldSaved().catch(console.warn)); return r; };
 }

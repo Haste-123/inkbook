@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '29';
+const APP_VERSION = '30';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -499,7 +499,7 @@ async function renderSubjectSaved(folderId) {
       <div class="row-main"><b>${esc(it.title)}</b><span>${esc(it.nbTitle)} · p. ${it.pageNo}${it.section ? ' · ' + esc(it.section) : ''}${it.auto ? ' · from text' : ''}</span></div></div>`).join('')}</div>`;
 }
 async function renderSearch(q) {
-  const ql = q.toLowerCase(), pages = await db.all('pages'), nbMap = new Map(NBS.map(n => [n.id, n]));
+  const ql = q.toLowerCase(), pages = await searchPages(), nbMap = new Map(NBS.map(n => [n.id, n]));
   const hl = s => esc(s).replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), m => `<mark>${m}</mark>`);
   const fRes = FOLDERS.filter(f => f.name.toLowerCase().includes(ql));
   const nRes = NBS.filter(n => n.title.toLowerCase().includes(ql));
@@ -1330,16 +1330,7 @@ function onMove(e) {
   } else if (a.mode === 'lasso') {
     if (S.selMode === 'rect') a.poly = [a.start.x, a.start.y, pt.x, a.start.y, pt.x, pt.y, a.start.x, pt.y];
     else list.forEach(ev => { const q = toPt(a, ev); a.poly.push(q.x, q.y); });
-  } else if (a.mode === 'move') {
-    const sr = scroller.getBoundingClientRect();                        // near the top/bottom edge: scroll, so it can travel to other pages
-    if (e.clientY > sr.bottom - 70) scroller.scrollTop += 14; else if (e.clientY < sr.top + 70) scroller.scrollTop -= 14;
-    const tg = pageAt(e.clientX, e.clientY) || { p: a.page, el: a.pageEl }, r = tg.el.getBoundingClientRect(), u = r.width / tg.p.w;
-    const b = E.sel.box, bw = b[2] - b[0], bh = b[3] - b[1];
-    let nx = (e.clientX - r.left) / u - (a.start.x - b[0]), ny = (e.clientY - r.top) / u - (a.start.y - b[1]);
-    nx = clamp(nx, Math.min(0, tg.p.w - bw), Math.max(0, tg.p.w - bw)); ny = clamp(ny, Math.min(0, tg.p.h - bh), Math.max(0, tg.p.h - bh));   // never off the page
-    a.tgt = tg.p === a.page ? null : tg.p; a.tgtEl = a.tgt ? tg.el : null;
-    a.dx = nx - b[0]; a.dy = ny - b[1];
-  }
+  } else if (a.mode === 'move') { selMoveTo(a, e.clientX, e.clientY); edgeScroll(a); }
   else if (a.mode === 'scale') {
     const b = E.sel.box, kmax = Math.max(0.1, Math.min((a.page.w - b[0]) / Math.max(1, b[2] - b[0]), (a.page.h - b[1]) / Math.max(1, b[3] - b[1])));
     a.k = clamp(((pt.x - b[0]) / (b[2] - b[0]) + (pt.y - b[1]) / (b[3] - b[1])) / 2, 0.1, Math.min(12, kmax));
@@ -1578,6 +1569,32 @@ function followSaved(p, b, tx, ty, toPage = p) {
     it.box = [tx(it.box[0]), ty(it.box[1]), tx(it.box[2]), ty(it.box[3])].map(n => Math.round(n)); it.pageId = toPage.id; changed = true;
   }
   if (changed) saveNb();
+}
+// Where the moving selection goes for a screen point: the page under it, never off that page
+function selMoveTo(a, cx, cy) {
+  a.cx = cx; a.cy = cy;
+  const tg = pageAt(cx, cy) || { p: a.page, el: a.pageEl }, r = tg.el.getBoundingClientRect(), u = r.width / tg.p.w;
+  const b = E.sel.box, bw = b[2] - b[0], bh = b[3] - b[1];
+  let nx = (cx - r.left) / u - (a.start.x - b[0]), ny = (cy - r.top) / u - (a.start.y - b[1]);
+  nx = clamp(nx, Math.min(0, tg.p.w - bw), Math.max(0, tg.p.w - bw)); ny = clamp(ny, Math.min(0, tg.p.h - bh), Math.max(0, tg.p.h - bh));
+  a.tgt = tg.p === a.page ? null : tg.p; a.tgtEl = a.tgt ? tg.el : null;
+  a.dx = nx - b[0]; a.dy = ny - b[1];
+}
+// Holding a selection near the top or bottom edge keeps scrolling (faster the closer you are), so it can travel to other pages
+function edgeScroll(a) {
+  if (a.edgeRaf) return;
+  let last = performance.now();
+  const tick = now => {
+    a.edgeRaf = 0; if (active !== a || a.mode !== 'move') return;
+    const sr = scroller.getBoundingClientRect(), Z = 80, dt = Math.min(50, (now || performance.now()) - last); last = now || performance.now();
+    const v = a.cy > sr.bottom - Z ? (a.cy - (sr.bottom - Z)) / Z : a.cy < sr.top + Z ? -((sr.top + Z) - a.cy) / Z : 0;
+    if (!v) return;
+    const speed = 900 * Math.min(1, Math.abs(v)) ** 2;                 // px per second: gentle at the edge of the zone, ~1 page/s at the very edge
+    const before = scroller.scrollTop; scroller.scrollTop += Math.sign(v) * Math.max(1, Math.round(speed * dt / 1000));
+    if (scroller.scrollTop !== before) { selMoveTo(a, a.cx, a.cy); scheduleLive(); }
+    a.edgeRaf = requestAnimationFrame(tick);
+  };
+  a.edgeRaf = requestAnimationFrame(tick);
 }
 // The page under a screen point (or the nearest one, so a drag never gets stuck in the gap between pages)
 function pageAt(x, y) {
