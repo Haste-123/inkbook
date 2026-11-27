@@ -1370,3 +1370,41 @@ body.reading .page { touch-action: pan-x pan-y; }
 .tk-main .tk-meta { display: flex; align-items: center; gap: 5px; flex-wrap: nowrap; min-width: 0; white-space: nowrap; }
 .tk-meta .tk-subj { min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 .tk-meta .tk-dot, .tk-meta em, .tk-meta i, .tk-meta .tk-ni { flex-shrink: 0; }
+
+/* v37 Board: notes with no date */
+.board { display: flex; flex-direction: column; gap: 14px; padding-bottom: 30px; }
+.bn-add { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 5px 5px 5px 12px; }
+.bn-add:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.bn-add input { flex: 1; min-width: 0; border: 0 !important; background: transparent !important; box-shadow: none !important; padding: 7px 0; }
+.bn-add .icon-btn { color: var(--accent); }
+.board-grid { columns: 3 230px; column-gap: 12px; }
+.bn-card { break-inside: avoid; display: flex; flex-direction: column; gap: 6px; width: 100%; margin: 0 0 12px; padding: 12px 14px; text-align: left; color: var(--text);
+  border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+.bn-card[style*="--c"] { border-top: 4px solid var(--c); background: color-mix(in srgb, var(--c) 7%, var(--surface)); }
+.bn-card b { font-size: 15.5px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+.bn-body { font-size: 14px; line-height: 1.45; color: var(--text); opacity: .85; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
+.bn-img { position: relative; display: block; width: calc(100% + 28px); margin: -12px -14px 2px; aspect-ratio: 4 / 3; background: var(--surface-2) center/cover no-repeat; border-radius: 15px 15px 0 0; }
+.bn-card[style*="--c"] .bn-img { border-radius: 12px 12px 0 0; }
+.bn-img.missing::after { content: 'Photo still syncing…'; position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; color: var(--muted); }
+.bn-img i { position: absolute; right: 8px; bottom: 8px; font-style: normal; font-size: 12px; font-weight: 700; color: #fff; background: rgba(0,0,0,.55); padding: 2px 8px; border-radius: 999px; }
+.bn-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); min-width: 0; }
+.bn-meta:empty { display: none; }
+.bn-pin { display: inline-flex; color: var(--accent); }
+.bn-pin svg.i { width: 14px; height: 14px; }
+.bn-subj { display: inline-flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bn-subj i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex-shrink: 0; }
+.bn-card.compact { padding: 10px 12px; }
+.bn-card.compact .bn-img { aspect-ratio: 16 / 9; margin: -10px -12px 2px; width: calc(100% + 24px); }
+.bn-ed .bn-tools { display: flex; gap: 4px; }
+.bn-ed [data-pin].on { background: var(--accent); color: #fff; }
+.bn-text { min-height: 160px; font-size: 16px; }
+.bn-colors { display: flex; gap: 10px; }
+.bn-col { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--border); background: var(--c); color: var(--muted); font-size: 13px; padding: 0; }
+.bn-col.on { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--accent); }
+@media (max-width: 640px) { .board-grid { columns: 2 150px; column-gap: 10px; } .bn-card { margin-bottom: 10px; } }
+/* iPhone: four tabs; the Board has its own add box, so no + button there */
+body.phone .tabbar { grid-template-columns: repeat(4, 1fr); }
+body.phone[data-lv="board"] .fab, body.phone[data-lv="board"] #search, body.phone[data-lv="board"] #newBtn { display: none; }
+/* less clutter: sort and grid/list only make sense where notebooks are listed */
+body[data-lv="planner"] #sortBtn, body[data-lv="planner"] #layoutBtn, body[data-lv="board"] #sortBtn, body[data-lv="board"] #layoutBtn, body[data-lv="today"] #sortBtn, body[data-lv="today"] #layoutBtn { display: none; }
+.td-pins .board-grid { columns: 2 140px; }

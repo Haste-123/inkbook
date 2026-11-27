@@ -368,6 +368,11 @@ const HELP = [
     <li>To add your iPhone: cloud → <b>Set up another device</b> → <b>Copy setup code</b>, then on the iPhone: cloud → <b>I have a setup code</b>.</li>
     <li>If the same page was changed on two devices before they synced, the device that syncs it last keeps its version.</li></ul>
     <p class="hint">The cloud turns green with a tick when everything is synced, spins while syncing, and shows ! if something needs your attention.</p>`],
+  ['Board', `
+    <ul><li>Library → <b>Board</b> (on iPhone: the Board tab) is for notes with <b>no date</b>: what's on the final, a photo of the exam timetable, ideas, things to do later.</li>
+    <li>Type a note and press Return, or tap the photo button to start one from a picture. The first line is the title.</li>
+    <li>Tap a note to edit it, add photos, choose a subject or a colour, or <b>pin</b> it to the top. Pinned notes also show on the iPhone's Today screen.</li>
+    <li>⋯ → <b>Make it a task</b> puts it in your Planner when it turns into something to do.</li></ul>`],
   ['Reminders', `
     <ul><li>Tap the <b>bell</b> (top right, in the library and in every notebook) to open Reminders from anywhere.</li>
     <li>Just type, e.g. <i>Lab report due fri 5pm</i> or <i>Quiz 27th</i>: the date and time are picked up for you, and the subject too if you mention it. Or tap Today, Tomorrow, a weekday, or pick a date.</li>
@@ -415,7 +420,7 @@ function openHelp(topic = 0) {
 
 // ---------- Start ----------
 boot().then(() => {
-  bootFind(); bootOrganize(); bootPlus(); bootReminders(); bootSync(); bootHistory(); bootPhone(); bootEdit();
+  bootFind(); bootOrganize(); bootPlus(); bootReminders(); bootSync(); bootHistory(); bootPhone(); bootEdit(); bootBoard();
   $('#helpSide')?.addEventListener('click', () => openHelp());
   document.addEventListener('keydown', e => { if (e.key === '?' && !e.target.closest?.('[contenteditable], input, textarea')) openHelp(); });
   if (!localStorage.getItem('inkbook.seenHelp2')) { try { localStorage.setItem('inkbook.seenHelp2', '1'); } catch { } toast('New: folders, lessons, images, shapes, saved questions, import & convert. Tap Help in the sidebar for a tour.', 6000); }
