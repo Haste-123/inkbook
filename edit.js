@@ -132,6 +132,7 @@ async function photoViewer(key, onDelete) {
   const m = openModal(`<div class="pv-wrap"><img src="${u}" alt=""></div><div class="modal-actions"><button class="btn danger-outline" data-del>Remove photo</button><button class="btn primary" data-close>Done</button></div>`, 'wide pv');
   $('[data-del]', m.el).onclick = () => { m.close(); onDelete?.(); };
   m.onClose = () => URL.revokeObjectURL(u);
+  globalThis.zoomable?.($('.pv-wrap', m.el), $('.pv-wrap img', m.el));
 }
 async function drawThumbs(box, keys) {
   box.innerHTML = keys.map(k => `<button class="tp-th" data-tk="${esc(k)}"></button>`).join('') + `<button class="tp-add" data-tadd>${icon('image')}<span>${keys.length ? 'Add' : 'Add photo'}</span></button>`;

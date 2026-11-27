@@ -700,7 +700,7 @@ async function renderPlannerStrip(box, folderId) {
   if (!folderId && !ex.length && !tk.length) return;
   $('.plan-strip', box)?.remove();
   const h = document.createElement('div'); h.className = 'plan-strip';
-  h.innerHTML = `<div class="plan-head"><h3 class="lib-sec">${folderId ? 'Exams & study plan' : 'Coming up'}${globalThis.semChip?.() || ''}</h3>${folderId ? '' : globalThis.statusChipHtml?.() || ''}<div class="plan-btns"><button class="btn small" data-padd="exam">${icon('plus')}Exam</button><button class="btn small" data-padd="task">${icon('plus')}Task</button>${folderId ? '' : `<button class="btn small" data-popen>Planner</button>`}</div></div>
+  h.innerHTML = `<div class="plan-head"><h3 class="lib-sec">${folderId ? 'Exams & study plan' : 'Coming up'}${globalThis.semChip?.() || ''}</h3><div class="plan-btns"><button class="btn small" data-padd="exam">${icon('plus')}Exam</button><button class="btn small" data-padd="task">${icon('plus')}Task</button>${folderId ? '' : `<button class="btn small" data-popen>Planner</button>`}</div></div>
     ${ex.length ? `<div class="exam-row">${ex.slice(0, folderId ? 8 : 4).map(examCard).join('')}</div>` : folderId ? `<div class="hint">No exams yet. Add one for a countdown, then tap it to make a study plan.</div>` : ''}
     ${tk.length ? `<div class="task-list">${tk.slice(0, folderId ? 8 : 4).map(t => taskRow(t, !folderId)).join('')}</div>` : ''}`;
   box.prepend(h); wirePlanner(h, folderId);

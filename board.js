@@ -61,7 +61,7 @@ async function renderBoard(box) {
       const n = { id: uid(), text: '', imgs, folderId: boardFilter || null, created: Date.now(), updated: Date.now() }; notesOf().push(n); await savePlan();
       await renderBoard(box); return noteEditor(n.id, () => renderBoard(box));
     }
-    const card = c('[data-note]'); if (card) return noteEditor(card.dataset.note, () => renderBoard(box));
+    const card = c('[data-note]'); if (card) return openNote(card.dataset.note, () => renderBoard(box));
   }));
 }
 
@@ -112,13 +112,124 @@ function noteEditor(id, onDone) {
   });
 }
 
+// pinch, drag, double-tap (and ctrl/trackpad wheel) zoom for a picture inside a box
+function zoomable(stage, img, { onSwipe } = {}) {
+  let s = 1, x = 0, y = 0, g = null, lastTap = 0;
+  const pts = new Map();
+  // the picture always fills the box (small photos are scaled up too), keeping its shape
+  const fit = () => { const r = stage.getBoundingClientRect(), nw = img.naturalWidth, nh = img.naturalHeight; if (!nw || !r.width) return; const k = Math.min(r.width / nw, r.height / nh); img.style.width = nw * k + 'px'; img.style.height = nh * k + 'px'; img.style.maxWidth = img.style.maxHeight = 'none'; clamp(); apply(); };
+  const apply = () => { img.style.transform = `translate(${x}px, ${y}px) scale(${s})`; stage.classList.toggle('zoomed', s > 1.01); stage.dispatchEvent(new Event('zoomchange')); };
+  const clamp = () => {
+    s = Math.min(6, Math.max(1, s)); if (s <= 1.01) { s = 1; x = 0; y = 0; return; }
+    const r = stage.getBoundingClientRect(), mx = Math.max(0, (img.offsetWidth * s - r.width) / 2), my = Math.max(0, (img.offsetHeight * s - r.height) / 2);
+    x = Math.min(mx, Math.max(-mx, x)); y = Math.min(my, Math.max(-my, y));
+  };
+  const zoomAt = (ns, cx, cy) => { const r = stage.getBoundingClientRect(), px = cx - r.left - r.width / 2, py = cy - r.top - r.height / 2; ns = Math.min(6, Math.max(1, ns)); x = px - (px - x) * ns / s; y = py - (py - y) * ns / s; s = ns; clamp(); apply(); };
+  const start = () => {
+    const p = [...pts.values()];
+    if (p.length >= 2) { const [a, b] = p; g = { pinch: true, d: Math.hypot(a.x - b.x, a.y - b.y) || 1, s, x, y, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }; }
+    else if (p.length === 1) g = { pinch: false, sx: p[0].x, sy: p[0].y, x, y, moved: false };
+    else g = null;
+  };
+  stage.addEventListener('pointerdown', e => { if (e.button > 0) return; try { stage.setPointerCapture(e.pointerId); } catch {} pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); start(); });
+  stage.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId) || !g) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = [...pts.values()];
+    if (g.pinch && p.length >= 2) {
+      const [a, b] = p, d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, r = stage.getBoundingClientRect();
+      const ns = Math.min(6, Math.max(1, g.s * d / g.d)), px = g.mx - r.left - r.width / 2, py = g.my - r.top - r.height / 2;
+      x = px - (px - g.x) * ns / g.s + (mx - g.mx); y = py - (py - g.y) * ns / g.s + (my - g.my); s = ns; clamp(); apply();
+    } else if (!g.pinch) {
+      const dx = e.clientX - g.sx, dy = e.clientY - g.sy; if (Math.hypot(dx, dy) > 6) g.moved = true;
+      if (s > 1) { x = g.x + dx; y = g.y + dy; clamp(); apply(); }
+    }
+  });
+  const end = e => {
+    if (!pts.has(e.pointerId)) return; const was = g; pts.delete(e.pointerId);
+    if (was && !was.pinch && pts.size === 0) {
+      const dx = e.clientX - was.sx, dy = e.clientY - was.sy;
+      if (!was.moved) { const now = Date.now(); if (now - lastTap < 300) { lastTap = 0; if (s > 1) { s = 1; clamp(); apply(); } else zoomAt(2.5, e.clientX, e.clientY); } else lastTap = now; }
+      else if (s === 1 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) onSwipe?.(dx < 0 ? 1 : -1);
+    }
+    start();
+  };
+  stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
+  stage.addEventListener('wheel', e => { e.preventDefault(); if (e.ctrlKey || e.metaKey) zoomAt(s * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY); else if (s > 1) { x -= e.deltaX; y -= e.deltaY; clamp(); apply(); } }, { passive: false });
+  img.addEventListener('load', fit); if (img.complete) fit();
+  new ResizeObserver(fit).observe(stage);
+  return { reset() { s = 1; x = 0; y = 0; apply(); }, get scale() { return s; } };
+}
+
+// tapping a note with a photo shows the photo full screen; Edit opens the note
+async function noteViewer(id, onDone) {
+  await loadPlan(); if (!FOLDERS.length) FOLDERS = await db.all('folders');
+  const n = notesOf().find(x => x.id === id); if (!n) return;
+  if (!n.imgs?.length) return noteEditor(id, onDone);
+  const imgs = [...n.imgs]; let i = 0, url = '';
+  const v = document.createElement('div'); v.className = 'nviewer';
+  const subj = n.folderId && folderById(n.folderId);
+  v.innerHTML = `<div class="nv-top"><button class="nv-btn" data-x title="Close">${icon('x')}</button><span class="nv-count"></span><button class="nv-btn nv-edit" data-edit>${icon('edit')}<span>Edit</span></button></div>
+    <div class="nv-stage"><img alt="" draggable="false"><span class="nv-miss" hidden>Photo still syncing…</span></div>
+    <button class="nv-nav prev" data-prev title="Previous">‹</button><button class="nv-nav next" data-next title="Next">›</button>
+    <div class="nv-cap">${noteTitle(n) ? `<b>${esc(noteTitle(n))}</b>` : ''}${noteBody(n) ? `<span>${esc(noteBody(n))}</span>` : ''}${subj ? `<small><i style="--c:${esc(subj.color || S.accent)}"></i>${esc(subj.name)}</small>` : ''}</div>`;
+  document.body.appendChild(v);
+  const stage = $('.nv-stage', v), img = $('img', stage), cap = $('.nv-cap', v);
+  if (!cap.innerHTML.trim()) cap.remove();
+  const show = async k => {
+    if (k < 0 || k >= imgs.length) return; i = k;
+    $('.nv-count', v).textContent = imgs.length > 1 ? `${i + 1} of ${imgs.length}` : '';
+    $('[data-prev]', v).hidden = i === 0; $('[data-next]', v).hidden = i === imgs.length - 1;
+    const b = await db.get('blobs', imgs[i]); if (url) URL.revokeObjectURL(url); url = '';
+    $('.nv-miss', v).hidden = b instanceof Blob; img.hidden = !(b instanceof Blob);
+    if (b instanceof Blob) { url = URL.createObjectURL(b); img.src = url; }
+    z.reset();
+  };
+  const z = zoomable(stage, img, { onSwipe: d => show(i + d) });
+  stage.addEventListener('zoomchange', () => v.classList.toggle('zoomed', z.scale > 1.01));
+  const close = () => { if (!v.isConnected) return; v.remove(); if (url) URL.revokeObjectURL(url); document.removeEventListener('keydown', key, true); };
+  const key = e => {
+    e.stopPropagation();
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    else if (e.key === 'ArrowRight') show(i + 1); else if (e.key === 'ArrowLeft') show(i - 1);
+  };
+  document.addEventListener('keydown', key, true);
+  v.addEventListener('click', e => {
+    const c = s => e.target.closest(s);
+    if (c('[data-x]')) close();
+    else if (c('[data-edit]')) { close(); guard(noteEditor)(id, onDone); }
+    else if (c('[data-prev]')) show(i - 1); else if (c('[data-next]')) show(i + 1);
+    else if (c('.nv-cap')) cap.classList.toggle('open');
+  });
+  await show(0);
+}
+const openNote = (id, onDone) => guard(noteViewer)(id, onDone);
+
+// the home page gets its own Board strip: pinned and newest notes, a New note tile and See all
+async function homeBoard() {
+  await loadPlan();
+  const box = $('#libContent'); if (LIB.view !== 'home' || LIB.q.trim() || !box || box.querySelector('.home-board')) return;
+  const all = notesOf(), list = sortNotes([...all]).slice(0, 10);
+  const sec = document.createElement('div'); sec.className = 'home-board';
+  sec.innerHTML = `<h3 class="lib-sec"><span>Board</span>${all.length ? `<button class="lib-more" data-allnotes>${all.length > list.length ? `See all ${all.length}` : 'Open'}</button>` : ''}</h3>
+    <div class="hb-strip"><button class="hb-add" data-hbadd>${icon('plus')}<span>${all.length ? 'New note' : 'Add a note with no date'}</span></button>${list.map(n => noteCard(n, true)).join('')}</div>`;
+  const heads = box.querySelectorAll(':scope > h3.lib-sec'), nbHead = heads[heads.length - 1];
+  nbHead ? nbHead.before(sec) : box.prepend(sec);
+  fillNoteImages(sec);
+  sec.addEventListener('click', guard(async e => {
+    const c = s => e.target.closest(s);
+    if (c('[data-allnotes]')) { LIB.view = 'board'; return showLibrary(); }
+    if (c('[data-hbadd]')) { LIB.view = 'board'; await showLibrary(); return $('[data-bnew]')?.focus(); }
+    const card = c('[data-note]'); if (card) openNote(card.dataset.note, () => showLibrary());
+  }));
+}
+
 function bootBoard() {
   // sidebar (iPad) and title
   $('[data-view="planner"]')?.insertAdjacentHTML('afterend', `<button data-view="board"><span data-icon="board">${icon('board')}</span>Board</button>`);
   const _rc = renderCrumbs;
   renderCrumbs = function () { if (LIB.view === 'board' && !LIB.q.trim()) { $('#crumbs').innerHTML = `<span class="crumb cur">Board</span>`; return; } return _rc(); };
   const _rlc = renderLibContent;
-  renderLibContent = function () { if (LIB.view === 'board') { updateTabbar?.(); return renderBoard($('#libContent')); } return _rlc(); };
+  renderLibContent = function () { if (LIB.view === 'board') { updateTabbar?.(); return renderBoard($('#libContent')); } const r = _rlc(); if (LIB.view === 'home' && !LIB.q.trim()) homeBoard(); return r; };
   // the iPhone tab bar gets a Board tab
   const tb = $('#tabbar'); if (tb && !tb.querySelector('[data-pv="board"]')) {
     tb.querySelector('[data-pv="planner"]')?.insertAdjacentHTML('afterend', `<button data-pv="board">${icon('board')}<span>Board</span></button>`);
@@ -134,7 +245,7 @@ function bootBoard() {
     sec.innerHTML = `<div class="td-sec">Pinned</div><div class="board-grid">${pins.map(n => noteCard(n, true)).join('')}</div>`;
     const focus = box.querySelector('.td-focus'); focus ? focus.after(sec) : box.querySelector('.today')?.appendChild(sec);
     fillNoteImages(sec);
-    sec.addEventListener('click', e => { const c = e.target.closest('[data-note]'); if (c) { e.stopPropagation(); guard(noteEditor)(c.dataset.note, () => showLibrary()); } });
+    sec.addEventListener('click', e => { const c = e.target.closest('[data-note]'); if (c) { e.stopPropagation(); openNote(c.dataset.note, () => showLibrary()); } });
   };
   // library search also finds board notes
   const _rs = renderSearch;
@@ -144,6 +255,6 @@ function bootBoard() {
     if (!hits.length) return;
     const sec = document.createElement('div'); sec.innerHTML = `<h3 class="lib-sec">On your board</h3><div class="board-grid">${hits.slice(0, 12).map(n => noteCard(n)).join('')}</div>`;
     $('#libContent').prepend(sec); fillNoteImages(sec);
-    sec.addEventListener('click', e => { const c = e.target.closest('[data-note]'); if (c) guard(noteEditor)(c.dataset.note, () => showLibrary()); });
+    sec.addEventListener('click', e => { const c = e.target.closest('[data-note]'); if (c) openNote(c.dataset.note, () => showLibrary()); });
   };
 }

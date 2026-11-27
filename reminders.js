@@ -818,7 +818,7 @@ renderPlanner = async function (box) {
   // summary: semester week + three small counters
   const st = semText();
   const counts = [[late, 'overdue', 'late', 'Overdue'], [today, 'today', 'tdy', 'Today'], [week, 'next 7 days', 'week', '']].filter(c => c[0]);
-  $('[data-sum]', root).innerHTML = statusChipHtml() + (st ? `<button class="sem-card" data-sem title="Change semester"><div class="sem-top"><b>${esc(st.big)}</b><span>${esc(st.small)}</span></div><div class="sem-prog"><i style="width:${st.pct}%"></i></div></button>` : '') +
+  $('[data-sum]', root).innerHTML = (st ? `<button class="sem-card" data-sem title="Change semester"><div class="sem-top"><b>${esc(st.big)}</b><span>${esc(st.small)}</span></div><div class="sem-prog"><i style="width:${st.pct}%"></i></div></button>` : '') +
     `<div class="pl-counts">${counts.length ? counts.map(([n, l, c, j]) => `<button class="pl-count ${c}" ${j ? `data-jump="${j}"` : ''}><b>${n}</b>${l}</button>`).join('') : `<span class="pl-clear">${icon('check')}All caught up</span>`}</div>`;
 
   const folderKeys = [...FOLDERS].sort((a, b) => a.name.localeCompare(b.name)).map(f => f.id);
@@ -907,14 +907,14 @@ function statusParts() {
   return out;
 }
 const ST_LBL = { ok: 'Up to date', busy: 'Updating…', wait: 'Waiting to sync', err: 'Needs attention' };
-const ST_IC = { ok: 'check', busy: 'sync', wait: 'clock', err: 'bell' };
+const ST_IC = { ok: 'check', busy: 'sync', wait: 'clock', err: 'warn' };
 function statusChipHtml() {
   const ps = statusParts(); if (!ps.length) return '';
   const st = ['err', 'busy', 'wait', 'ok'].find(s => ps.some(p => p.state === s));
   return `<button class="st-chip st-${st}" data-status title="Sync and Calendar status">${icon(ST_IC[st])}<span>${ST_LBL[st]}</span></button>`;
 }
 globalThis.statusChipHtml = statusChipHtml;
-function refreshStatusChips() { const h = statusChipHtml(); for (const b of $$('[data-status]')) { if (!h) { b.remove(); continue; } const t = document.createElement('template'); t.innerHTML = h; b.replaceWith(t.content.firstElementChild); } }
+function refreshStatusChips() { const h = statusChipHtml(); for (const s of $$('.st-slot')) if (s.innerHTML !== h) s.innerHTML = h; for (const b of $$('[data-status]')) { if (b.parentElement?.classList.contains('st-slot')) continue; if (!h) { b.remove(); continue; } const t = document.createElement('template'); t.innerHTML = h; b.replaceWith(t.content.firstElementChild); } }
 function statusSheet() {
   const draw = () => {
     const ps = statusParts();

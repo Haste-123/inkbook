@@ -371,6 +371,7 @@ const HELP = [
   ['Board', `
     <ul><li>Library → <b>Board</b> (on iPhone: the Board tab) is for notes with <b>no date</b>: what's on the final, a photo of the exam timetable, ideas, things to do later.</li>
     <li>Type a note and press Return, or tap the photo button to start one from a picture. The first line is the title.</li>
+    <li>A note with a photo opens full screen: pinch or double-tap to zoom, swipe for the next photo, tap <b>Edit</b> to change it. Your newest and pinned notes also show on the Home page.</li>
     <li>Tap a note to edit it, add photos, choose a subject or a colour, or <b>pin</b> it to the top. Pinned notes also show on the iPhone's Today screen.</li>
     <li>⋯ → <b>Make it a task</b> puts it in your Planner when it turns into something to do.</li></ul>`],
   ['Reminders', `

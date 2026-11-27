@@ -372,7 +372,9 @@ function syncSetup(keyOnly = false) {
 // ---------- boot ----------
 function bootSync() {
   const mk = () => { const b = document.createElement('button'); b.className = 'icon-btn sync-btn'; b.onclick = () => guard(syncMenu)(); return b; };
-  $('#remLibBtn')?.before(mk());
+  const slot = cls => { const s = document.createElement('span'); s.className = 'st-slot ' + cls; return s; };
+  $('#remLibBtn')?.before(slot('lib'), mk());
+  $('.tb-right')?.prepend(slot('mini'));      // in a notebook: just the icon, tap for details
   const side = document.createElement('button'); side.id = 'syncSide'; side.innerHTML = `<span data-icon="cloud">${icon('cloud')}</span>Sync<small></small>`; side.onclick = () => guard(syncMenu)();
   $('#settingsBtn')?.before(side);
   setSyncStatus(); setInterval(() => setSyncStatus(syncing ? 'syncing' : undefined), 60000);

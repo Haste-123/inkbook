@@ -42,7 +42,7 @@ async function renderToday(box) {
   const sec = (title, list, cls = '') => list.length ? `<div class="td-sec ${cls}">${title}<small>${list.length}</small></div><div class="task-list">${list.map(t => remRow(t)).join('')}</div>` : '';
   const recent = [...NBS].sort((a, b) => (b.updated || 0) - (a.updated || 0)).slice(0, 8);
   box.innerHTML = `<div class="today">
-    <div class="td-date"><span>${now.toLocaleDateString(undefined, { weekday: 'long' })}</span><b>${now.toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}</b>${st && st.w >= 1 && st.w <= (sem().weeks || 16) ? `<i class="td-week">${esc(st.big)} of ${sem().weeks || 16}</i>` : ''}${globalThis.statusChipHtml?.() || ''}</div>
+    <div class="td-date"><span>${now.toLocaleDateString(undefined, { weekday: 'long' })}</span><b>${now.toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}</b>${st && st.w >= 1 && st.w <= (sem().weeks || 16) ? `<i class="td-week">${esc(st.big)} of ${sem().weeks || 16}</i>` : ''}</div>
     <div class="td-focus ${late.length ? 'late' : due ? 'due' : 'clear'}">${head}</div>
     ${sec('Overdue', late, 'late')}${sec('Today', today)}${sec('Tomorrow', tmrw)}
     ${soon.length ? `<div class="td-sec">Next 7 days<small>${soon.length}</small></div><div class="task-list">${soon.slice(0, 4).map(t => remRow(t)).join('')}</div>${soon.length > 4 ? `<button class="td-more" data-go="planner">+ ${soon.length - 4} more in Planner</button>` : ''}` : ''}
