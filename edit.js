@@ -45,10 +45,11 @@ async function pasteAtPoint(x, y) {
 }
 {
   const _pc = pasteClip;
-  pasteClip = async function (p, pt) {                // whatever pastes, it lands fully on the page
+  pasteClip = async function (p, pt) {                // whatever pastes, it lands fully on the page, as its own thing
     const c = E.clip; if (!c) return;
-    const bw = c.box[2] - c.box[0], bh = c.box[3] - c.box[1];
-    return _pc(p, { x: clamp(pt.x, 0, Math.max(0, p.w - bw)), y: clamp(pt.y, 0, Math.max(0, p.h - bh)) });
+    const bw = c.box[2] - c.box[0], bh = c.box[3] - c.box[1], strip = a => (a || []).map(({ g, ...o }) => o);
+    E.clip = { ...c, strokes: strip(c.strokes), images: strip(c.images), texts: strip(c.texts), tables: strip(c.tables) };
+    try { return await _pc(p, { x: clamp(pt.x, 0, Math.max(0, p.w - bw)), y: clamp(pt.y, 0, Math.max(0, p.h - bh)) }); } finally { E.clip = c; }
   };
 }
 function wheelSettings() {

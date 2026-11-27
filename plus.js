@@ -309,7 +309,7 @@ async function layoutsFlow() {
     if (x) { e.stopPropagation(); if (await confirmBox('Delete this layout?')) { mine.splice(+x.dataset.lx.slice(1), 1); await metaPut('layouts', mine); m.close(); layoutsFlow(); } return; }
     if (e.target.closest('[data-mine]')) {
       const name = await promptText('Save page as a layout', '', 'e.g. My physics problem page'); if (name === null) return;
-      mine.push({ id: uid(), name: name || 'My layout', w: base.w, h: base.h, template: base.template, paperColor: base.paperColor, strokes: base.strokes, texts: base.texts, tables: base.tables });
+      mine.push({ id: uid(), name: name || 'My layout', w: base.w, h: base.h, template: base.template, paperColor: base.paperColor, strokes: base.strokes.map(({ g, ...o }) => o), texts: base.texts.map(({ g, ...o }) => o), tables: (base.tables || []).map(({ g, ...o }) => o) });
       await metaPut('layouts', mine); toast('Layout saved (images are not included)'); m.close(); return;
     }
     const b = e.target.closest('[data-l]'); if (!b) return;

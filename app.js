@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '32';
+const APP_VERSION = '33';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -1218,7 +1218,8 @@ function recognize(q) {
 // ---------- Pointer input (Pencil / finger / mouse) ----------
 function toPt(a, e) { return { x: (e.clientX - a.rect.left) / a.rect.width * a.page.w, y: (e.clientY - a.rect.top) / a.rect.height * a.page.h }; }
 function addPoint(a, ev) {
-  const { x, y } = toPt(a, ev), q = a.stroke.p, n = q.length;
+  let { x, y } = toPt(a, ev); x = clamp(x, 0, a.page.w); y = clamp(y, 0, a.page.h);   // ink can't go off the page
+  const q = a.stroke.p, n = q.length;
   let pr = ev.pointerType === 'pen' ? (ev.pressure || 0.5) : 0.5;
   if (n) { const dx = x - q[n - 3], dy = y - q[n - 2]; if (dx * dx + dy * dy < 0.36) return; pr = q[n - 1] * 0.6 + pr * 0.4; }
   q.push(+x.toFixed(1), +y.toFixed(1), +pr.toFixed(3));
@@ -1319,7 +1320,7 @@ function onMove(e) {
     else { list.forEach(ev => addPoint(a, ev)); const pe = e.getPredictedEvents?.(); a.pred = pe?.length ? pe.slice(-2).map(ev => { const q = toPt(a, ev); return [q.x, q.y]; }) : null; }
     if (a.anchor && Math.hypot(pt.x - a.anchor.x, pt.y - a.anchor.y) > 3) { a.anchor = pt; armHold(a); }
   } else if (a.mode === 'snapped') { if (a.snap.kind === 'line') a.stroke.p = shapePts('line', a.snap.x0, a.snap.y0, pt.x, pt.y); }
-  else if (a.mode === 'shape') { a.end = pt; a.stroke.p = shapePts(S.shape, a.start.x, a.start.y, pt.x, pt.y); }
+  else if (a.mode === 'shape') { const q = { x: clamp(pt.x, 0, a.page.w), y: clamp(pt.y, 0, a.page.h) }; a.end = q; a.stroke.p = shapePts(S.shape, a.start.x, a.start.y, q.x, q.y); }
   else if (a.mode === 'erase') {
     const r = sz('eraser') / 2;
     for (const ev of list) {
@@ -2090,6 +2091,7 @@ async function duplicatePage(i) {
   const src = E.pages[i];
   const p = { ...structuredClone(src), id: uid() };
   p.texts.forEach(t => (t.id = uid()));
+  for (const o of [...p.strokes, ...p.images, ...p.texts, ...(p.tables || [])]) delete o.g;   // a copy isn't part of the saved item
   if (src.bgKey) p.bgKey = await copyBlob(src.bgKey, 'bg_');
   for (const im of p.images) im.key = await copyBlob(im.key);
   E.pages.splice(i + 1, 0, p); E.byId.set(p.id, p);

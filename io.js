@@ -281,7 +281,11 @@ const blobToDataURL = b => new Promise(r => { const f = new FileReader(); f.onlo
 async function exportBackup() {
   showProgress('Creating backup…'); await flush();
   const keys = (await db.keys('blobs')).filter(k => !String(k).startsWith('sync:')), blobs = {};   // sync bookkeeping belongs to this device only
-  for (const [i, k] of keys.entries()) { setProgress(`Packing file ${i + 1} of ${keys.length}`, i / keys.length); blobs[k] = await blobToDataURL(await db.get('blobs', k)); }
+  for (const [i, k] of keys.entries()) {
+    setProgress(`Packing file ${i + 1} of ${keys.length}`, i / keys.length);
+    const v = await db.get('blobs', k);
+    blobs[k] = v instanceof Blob ? await blobToDataURL(v) : { json: v };      // planner, stickers, layouts are data, not files
+  }
   const data = { app: 'inkbook', version: 2, date: Date.now(), folders: await db.all('folders'), notebooks: await db.all('notebooks'), pages: await db.all('pages'), blobs };
   closeProgress();
   readyToShare(new Blob([JSON.stringify(data)], { type: 'application/json' }), `inkbook-backup-${new Date().toISOString().slice(0, 10)}.json`);
@@ -292,11 +296,15 @@ async function importBackup(file) {
   const data = JSON.parse(await f.text());
   if (data.app !== 'inkbook') throw new Error('That file is not an Inkbook backup.');
   const blobs = Object.entries(data.blobs || {}).filter(([k]) => !k.startsWith('sync:'));
-  for (const [i, [k, u]] of blobs.entries()) { setProgress(`File ${i + 1} of ${blobs.length}`, i / blobs.length); await db.put('blobs', await (await fetch(u)).blob(), k); }
+  for (const [i, [k, u]] of blobs.entries()) {
+    setProgress(`File ${i + 1} of ${blobs.length}`, i / blobs.length);
+    if (u && typeof u === 'object' && 'json' in u) await db.put('blobs', u.json, k);
+    else if (typeof u === 'string') await db.put('blobs', await (await fetch(u)).blob(), k);
+  }
   for (const x of data.folders || []) await db.put('folders', x);
   for (const p of data.pages || []) await db.put('pages', p);
   for (const n of data.notebooks || []) await db.put('notebooks', n);
-  await migrate(); closeProgress(); toast(`Restored ${data.notebooks.length} notebooks`); showLibrary();
+  await migrate(); await loadPlan(); updatePlannerCount(); closeProgress(); toast(`Restored ${data.notebooks.length} notebooks`); showLibrary();
 }
 
 // ---------- Help ----------
