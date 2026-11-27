@@ -103,41 +103,15 @@ let REM = null;
 function openReminders() {
   if (REM?.m.el.isConnected) { REM.m.close(); return; }
   const m = openModal(`<div class="rem-head"><h2>${icon('bell')}Reminders</h2><button class="chip rem-alert" data-alert></button><button class="icon-btn" data-close title="Close">${icon('x')}</button></div>
-    <div class="rem-add">
-      <div class="rem-in"><input type="text" data-in placeholder="Add a reminder… e.g. Lab report due fri 5pm" enterkeyhint="done" autocomplete="off"><button class="btn primary" data-add>Add</button></div>
-      <div class="rem-auto" data-auto hidden></div>
-      <div class="rem-row"><span class="rem-lbl">When</span><div class="rem-chips" data-when></div></div>
-      <div class="rem-row"><span class="rem-lbl">Subject</span><div class="rem-chips" data-subj></div></div>
-    </div>
+    <div class="rem-add" data-cmp></div>
     <div class="rem-view"><div class="pl-seg small" data-rgroup><button data-v="date">${icon('calendar')}By date</button><button data-v="subject">${icon('folder')}By subject</button></div></div>
     <div class="rem-body" data-body></div>
-    <div class="rem-foot"><button class="btn small" data-paste>${icon('list')}Paste a list</button><button class="btn small" data-cal></button><button class="btn small" data-planner>Planner</button></div>`, 'rem');
+    <div class="rem-foot"><button class="btn small" data-paste>${icon('list')}Paste a list</button><button class="btn small" data-cal></button><button class="btn small" data-subjects>${icon('folder')}Subjects</button><button class="btn small" data-planner>Planner</button></div>`, 'rem');
   REM = { m };
-  const el = m.el, inp = $('[data-in]', el);
-  const st = { auto: parseWhen(''), due: undefined, time: undefined, f: undefined, keep: false };
-  const curDue = () => st.due !== undefined ? st.due : st.keep ? '' : st.auto.due;
-  const curTime = () => st.time !== undefined ? st.time : st.keep ? '' : st.auto.time;
-  const curF = () => st.f !== undefined ? st.f : (folderInText(inp.value)?.id ?? defaultSubj());
-
+  const el = m.el;
   const drawAlert = () => {
     const b = $('[data-alert]', el), on = S.remNotify && 'Notification' in window && Notification.permission === 'granted';
     b.classList.toggle('on', on); b.innerHTML = `${icon('bell')}${on ? 'Alerts on' : 'Alerts off'}`;
-  };
-  const drawAdd = () => {
-    const due = curDue(), time = curTime(), f = curF();
-    const a = $('[data-auto]', el), shown = st.auto.found && !st.keep && inp.value.trim();
-    a.hidden = !shown;
-    if (shown) a.innerHTML = `<span>Found:</span>${st.auto.due ? `<b>📅 ${esc(dueLabel({ due: st.auto.due }))}</b>` : ''}${st.auto.time ? `<b>⏰ ${esc(fmtTime(st.auto.time))}</b>` : ''}<button class="rem-x" data-keep title="Ignore">✕</button>`;
-    const days = [['', 'No date'], [isoDay(dayPlus(0)), 'Today'], [isoDay(dayPlus(1)), 'Tomorrow'],
-      ...[2, 3, 4, 5, 6].map(n => [isoDay(dayPlus(n)), dayPlus(n).toLocaleDateString(undefined, { weekday: 'short' })])];
-    const other = due && !days.some(([k]) => k === due);
-    $('[data-when]', el).innerHTML = days.map(([k, l]) => `<button class="chip${k === due ? ' on' : ''}" data-due="${k}">${l}</button>`).join('') +
-      `<label class="chip rem-pick${other ? ' on' : ''}">${icon('calendar')}<span>${other ? esc(fmtDay(due)) : 'Date'}</span><input type="date" data-date value="${esc(due)}"></label>` +
-      (due ? `<label class="chip rem-pick${time ? ' on' : ''}">${icon('clock2')}<span>${time ? esc(fmtTime(time)) : 'Time'}</span><input type="time" data-time value="${esc(time)}"></label>${time ? `<button class="chip" data-notime>✕</button>` : ''}` : '');
-    const subs = [['', 'General', '#8a8f98'], ...[...FOLDERS].sort((x, y) => x.name.localeCompare(y.name)).map(x => [x.id, x.name, x.color || S.accent])];
-    $('[data-subj]', el).innerHTML = subs.map(([k, l, c]) => `<button class="chip${(k || '') === (f || '') ? ' on' : ''}" data-f="${k}" style="--c:${esc(c)}"><i class="sdot"></i>${esc(l)}</button>`).join('');
-    $('[data-when] .on', el)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    $('[data-subj] .on', el)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   };
   const drawList = flash => {
     const open = PLAN.tasks.filter(t => !t.done);
@@ -152,36 +126,14 @@ function openReminders() {
   };
   REM.redraw = drawList;
   REM.drawCal = () => { const b = $('[data-cal]', el); if (b) b.innerHTML = `${icon('calendar')}${CS?.on ? (CS.err ? '⚠️ Calendar' : 'Calendar ✓') : 'Add to Calendar'}`; };
-
-  const add = guard(async () => {
-    const raw = inp.value.trim(); if (!raw) { inp.focus(); return toast('Type what you need to remember'); }
-    const due = curDue(), f = curF();
-    await loadPlan();
-    const t = { id: uid(), text: (st.keep ? raw : st.auto.text) || raw, folderId: f || null, due: due || '', time: due ? curTime() || '' : '', done: false };
-    PLAN.tasks.push(t); await savePlan();
-    S.remLastF = t.folderId || ''; saveSettings();
-    inp.value = ''; Object.assign(st, { auto: parseWhen(''), due: undefined, time: undefined, f: undefined, keep: false });
-    drawAdd(); drawList(t.id); remBadges(); remCheck();
-    toast(`✓ Added${t.due ? ' · ' + dueLabel(t) : ''}`, 1400);
-    if (matchMedia('(hover: hover)').matches) inp.focus();
-  });
-  inp.addEventListener('input', () => { st.auto = parseWhen(inp.value); if (!inp.value.trim()) st.keep = false; drawAdd(); });
-  inp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); add(); } });
-  $('[data-add]', el).onclick = add;
-  el.addEventListener('change', e => {
-    if (e.target.matches('[data-date]')) { st.due = e.target.value; drawAdd(); }
-    if (e.target.matches('[data-time]')) { st.time = e.target.value; drawAdd(); }
-  });
   el.addEventListener('click', guard(async e => {
     const q = s => e.target.closest(s);
-    if (q('[data-keep]')) { st.keep = true; drawAdd(); return; }
+    if (q('[data-cmp]')) return;                                   // the add box handles its own taps
     if (q('[data-rgroup] [data-v]')) { S.planGroup = q('[data-v]').dataset.v; saveSettings(); $$('[data-rgroup] [data-v]', el).forEach(b => b.classList.toggle('on', b.dataset.v === S.planGroup)); drawList(); return; }
-    if (q('[data-due]')) { st.due = q('[data-due]').dataset.due; if (!st.due) st.time = ''; drawAdd(); return; }
-    if (q('[data-notime]')) { st.time = ''; drawAdd(); return; }
-    if (q('[data-f]')) { st.f = q('[data-f]').dataset.f; drawAdd(); return; }
     if (q('[data-alert]')) { await toggleAlerts(); drawAlert(); return; }
     if (q('[data-paste]')) { if (await pasteListFlow()) { await loadPlan(); drawList(); remBadges(); remCheck(); } return; }
     if (q('[data-cal]')) { await calendarMenu(); REM?.drawCal(); drawList(); return; }
+    if (q('[data-subjects]')) { await subjectsFlow(); await loadPlan(); REM?.cmp?.draw(); drawList(); return; }
     if (q('[data-planner]')) { m.close(); if (inEditor()) await leaveNotebook(); LIB.view = 'planner'; LIB.folderId = null; showLibrary(); return; }
     const ex = q('[data-exam]'); if (ex) { await loadPlan(); const x = PLAN.exams.find(y => y.id === ex.dataset.exam); if (x && await examMenu(x)) { await loadPlan(); drawList(); } return; }
     const row = q('[data-task]'); if (!row) return;
@@ -196,10 +148,160 @@ function openReminders() {
   m.onClose = () => { REM = null; if (!$('#library').hidden) showLibrary(); };
   (async () => {
     if (!FOLDERS.length) FOLDERS = await db.all('folders');
-    await loadPlan(); drawAlert(); drawAdd(); drawList(); REM.drawCal();
+    await loadPlan();
+    REM.cmp = makeComposer($('[data-cmp]', el), { placeholder: 'Add a reminder… e.g. Lab report due fri 5pm', subj: defaultSubj, onAdd: t => drawList(t.id) });
+    drawAlert(); drawList(); REM.drawCal();
     $$('[data-rgroup] [data-v]', el).forEach(b => b.classList.toggle('on', b.dataset.v === (S.planGroup === 'subject' ? 'subject' : 'date')));
-    if (matchMedia('(hover: hover)').matches) inp.focus();
+    if (matchMedia('(hover: hover)').matches) REM.cmp.focus();
   })();
+}
+
+// ---------- the add box: type, then check or change date, subject and note before adding ----------
+// Subjects are keyed: a folder id, 'tag:Name' (a heading from a pasted list) or '' (General).
+const normKey = k => (!k || k === 'general') ? '' : k;
+function makeComposer(host, { placeholder = 'Add a task… e.g. Lab report due fri 5pm', subj = () => '', onAdd }) {
+  host.innerHTML = `<div class="cmp">
+    <div class="cmp-in"><span class="cmp-ic">${icon('plus')}</span><input type="text" data-cin placeholder="${esc(placeholder)}" enterkeyhint="done" autocomplete="off"><button class="btn primary small" data-cadd>Add</button></div>
+    <div class="cmp-opts">
+      <button class="cmp-pill" data-cwhen title="Due date and time">${icon('calendar')}<span></span></button>
+      <button class="cmp-pill" data-csubj title="Subject"><i class="sdot"></i><span></span>${icon('chev')}</button>
+      <button class="cmp-pill" data-cnote title="Add a note">${icon('edit')}<span>Note</span></button>
+    </div>
+    <textarea class="cmp-note" data-cnotetxt rows="2" placeholder="Note (optional), e.g. slides 44–47 not included" hidden></textarea>
+  </div>`;
+  const el = host.firstElementChild, inp = $('[data-cin]', el), note = $('[data-cnotetxt]', el);
+  const st = { auto: parseWhen(''), due: undefined, time: undefined, f: undefined };
+  const due = () => st.due !== undefined ? st.due : st.auto.due;
+  const time = () => !due() ? '' : st.time !== undefined ? st.time : st.auto.time;
+  const fkey = () => st.f !== undefined ? st.f : normKey(folderInText(inp.value)?.id ?? normKey(subj()));
+  const draw = () => {                // only updates the three buttons: nothing moves while you type
+    const d = due(), t = time(), k = fkey(), s = subjInfo(k || 'general');
+    const w = $('[data-cwhen]', el); $('span', w).textContent = d ? dueLabel({ due: d, time: t }) : 'No date';
+    w.classList.toggle('set', !!d); w.classList.toggle('auto', !!d && st.due === undefined && !!st.auto.due);
+    const sb = $('[data-csubj]', el); sb.style.setProperty('--c', s.color); $('span', sb).textContent = s.name;
+    sb.classList.toggle('set', !!k); sb.classList.toggle('auto', st.f === undefined && !!folderInText(inp.value));
+    $('[data-cnote]', el).classList.toggle('set', !!note.value.trim());
+  };
+  const add = guard(async () => {
+    const raw = inp.value.trim(); if (!raw) { inp.focus(); return toast('Type the task first'); }
+    const k = fkey(), d = due();
+    const t = { id: uid(), text: st.auto.text || raw, folderId: k && !k.startsWith('tag:') ? k : null, ...(k.startsWith('tag:') ? { tag: k.slice(4) } : {}),
+      due: d || '', time: d ? time() || '' : '', note: note.value.trim(), done: false };
+    await loadPlan(); PLAN.tasks.push(t); await savePlan();
+    S.remLastF = t.folderId || ''; saveSettings();
+    inp.value = ''; note.value = ''; note.hidden = true;
+    Object.assign(st, { auto: parseWhen(''), due: undefined, time: undefined });   // keep a subject you picked, for the next one
+    draw(); remBadges(); remCheck();
+    toast(`✓ Added${t.due ? ' · ' + dueLabel(t) : ''}`, 1300);
+    await onAdd?.(t);
+    if (matchMedia('(hover: hover)').matches) inp.focus();
+  });
+  inp.addEventListener('input', () => { st.auto = parseWhen(inp.value); draw(); });
+  inp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); add(); } });
+  note.addEventListener('keydown', e => e.stopPropagation());
+  note.addEventListener('input', draw);
+  el.addEventListener('click', guard(async e => {
+    const q = s => e.target.closest(s);
+    if (q('[data-cadd]')) return add();
+    if (q('[data-cwhen]')) { const r = await whenPicker(due(), time()); if (r) { st.due = r.due; st.time = r.time; draw(); } return; }
+    if (q('[data-csubj]')) { const k = await subjectPicker(fkey()); if (k !== null) { st.f = normKey(k); draw(); } return; }
+    if (q('[data-cnote]')) { note.hidden = !note.hidden; if (!note.hidden) note.focus(); return; }
+  }));
+  draw();
+  const api = { draw, focus: () => inp.focus(), setSubj: k => { st.f = normKey(k); draw(); inp.focus(); } };
+  el._cmp = api; return api;
+}
+function whenPicker(d = '', t = '') {
+  return new Promise(res => {
+    const opts = [['', 'No date', ''], [isoDay(dayPlus(0)), 'Today', ''], [isoDay(dayPlus(1)), 'Tomorrow', ''],
+      ...[2, 3, 4, 5, 6].map(n => [isoDay(dayPlus(n)), dayPlus(n).toLocaleDateString(undefined, { weekday: 'long' }), dayPlus(n).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })]),
+      [isoDay(dayPlus(7)), 'In a week', dayPlus(7).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })]];
+    const m = openModal(`<h2>When is it due?</h2>
+      <div class="wp-grid">${opts.map(([k, l, sub]) => `<button class="wp-day${k === d ? ' on' : ''}" data-d="${k}"><b>${esc(l)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</button>`).join('')}</div>
+      <div class="field two" style="margin-top:14px"><div><label class="lbl">Or pick a date</label><input type="date" data-dd value="${esc(d)}"></div><div><label class="lbl">Time (optional)</label><input type="time" data-tt value="${esc(t)}"></div></div>
+      <div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" data-ok>Done</button></div>`, 'small');
+    const dd = $('[data-dd]', m.el), tt = $('[data-tt]', m.el);
+    const mark = () => { $$('[data-d]', m.el).forEach(b => b.classList.toggle('on', b.dataset.d === dd.value)); tt.disabled = !dd.value; if (!dd.value) tt.value = ''; };
+    m.el.addEventListener('click', e => { const b = e.target.closest('[data-d]'); if (b) { dd.value = b.dataset.d; mark(); } });
+    dd.addEventListener('change', mark); mark();
+    let out = null;
+    $('[data-ok]', m.el).onclick = () => { out = { due: dd.value, time: dd.value ? tt.value : '' }; m.close(); };
+    m.onClose = () => res(out);
+  });
+}
+
+// ---------- subjects: pick, add, rename, recolor ----------
+const SUBJ_COLORS = ['#2f5bea', '#e5484d', '#f08c00', '#30a46c', '#8e4ec6', '#0091b3', '#d6409f', '#b08800', '#7c6f64', '#1f2430'];
+const listTags = () => [...new Set(PLAN.tasks.filter(t => t.tag && !(t.folderId && folderById(t.folderId))).map(t => t.tag))].sort();
+function subjectPicker(cur = '') {
+  return new Promise(async res => {
+    if (!FOLDERS.length) FOLDERS = await db.all('folders');
+    const keys = ['', ...[...FOLDERS].sort((a, b) => a.name.localeCompare(b.name)).map(f => f.id), ...listTags().map(t => 'tag:' + t)];
+    const m = openModal(`<h2>Subject</h2><div class="sp-list">${keys.map(k => { const s = subjInfo(k || 'general'); return `<button class="sp-row${k === cur ? ' on' : ''}" data-k="${esc(k)}" style="--c:${esc(s.color)}"><i class="sp-dot"></i><span>${esc(s.name)}</span>${k.startsWith('tag:') ? '<small>from a list</small>' : ''}${k === cur ? '<b>✓</b>' : ''}</button>`; }).join('')}</div>
+      <button class="btn sp-new" data-new>${icon('plus')}New subject</button>
+      <div class="modal-actions"><button class="btn" data-close>Cancel</button></div>`, 'small');
+    let out = null;
+    m.el.addEventListener('click', guard(async e => {
+      const r = e.target.closest('[data-k]'); if (r) { out = r.dataset.k; m.close(); return; }
+      if (e.target.closest('[data-new]')) { const f = await subjectForm(); if (f) { out = f.id; m.close(); } }
+    }));
+    m.onClose = () => res(out);
+  });
+}
+// New subject (or edit one). A subject is a folder, so its notebooks can live there too.
+function subjectForm(f = null, prefill = '') {
+  return new Promise(async res => {
+    if (!FOLDERS.length) FOLDERS = await db.all('folders');
+    let color = f?.color || SUBJ_COLORS[FOLDERS.length % SUBJ_COLORS.length];
+    const m = openModal(`<h2>${f ? 'Edit subject' : 'New subject'}</h2>
+      <div class="field"><label class="lbl">Name</label><input type="text" data-name value="${esc(f?.name || prefill)}" placeholder="e.g. Aircraft Design" autocomplete="off"></div>
+      <div class="field"><label class="lbl">Color</label><div class="swatches sf-colors">${swatchHtml(SUBJ_COLORS.includes(color) ? SUBJ_COLORS : [color, ...SUBJ_COLORS], color)}</div></div>
+      <div class="sf-preview" style="--c:${color}"><i class="sp-dot"></i><span data-prev>${esc(f?.name || prefill || 'Subject')}</span></div>
+      ${f ? '' : `<p class="hint">It also appears as a folder in your library, so you can keep this subject's notebooks in it.</p>`}
+      <div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" data-ok>${f ? 'Save' : 'Add subject'}</button></div>`, 'small');
+    const name = $('[data-name]', m.el), prev = $('.sf-preview', m.el);
+    name.addEventListener('input', () => { $('[data-prev]', m.el).textContent = name.value.trim() || 'Subject'; });
+    name.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') $('[data-ok]', m.el).click(); });
+    m.el.addEventListener('click', e => { const s = e.target.closest('.sf-colors [data-v]'); if (s) { color = s.dataset.v; $$('.sf-colors [data-v]', m.el).forEach(x => x.classList.toggle('on', x === s)); prev.style.setProperty('--c', color); } });
+    let out = null;
+    $('[data-ok]', m.el).onclick = guard(async () => {
+      const n = name.value.trim(); if (!n) return toast('Give the subject a name');
+      const same = FOLDERS.find(x => x !== f && x.name.trim().toLowerCase() === n.toLowerCase() && !x.parentId);
+      if (same && !f) { out = same; m.close(); toast(`“${same.name}” already exists, using it`); return; }
+      if (f) { f.name = n; f.color = color; await db.put('folders', f); out = f; }
+      else { out = { id: uid(), name: n, color, parentId: null, created: Date.now() }; await db.put('folders', out); FOLDERS.push(out); }
+      m.close();
+    });
+    m.onClose = () => res(out);
+    setTimeout(() => name.focus(), 50);
+  });
+}
+async function subjectsFlow() {
+  if (!FOLDERS.length) FOLDERS = await db.all('folders');
+  await loadPlan();
+  return new Promise(res => {
+    const m = openModal(`<h2>Subjects</h2><div data-sl></div>
+      <button class="btn primary sp-new" data-new>${icon('plus')}New subject</button>
+      <div class="modal-actions"><button class="btn" data-close>Done</button></div>`, 'small');
+    const draw = () => {
+      const cnt = k => { const t = PLAN.tasks.filter(x => !x.done && subjKey(x) === k).length, e = PLAN.exams.filter(x => examKey(x) === k && daysTo(x.date) >= 0).length; return [t && `${t} to do`, e && `${e} exam${e > 1 ? 's' : ''}`].filter(Boolean).join(' · ') || 'Nothing planned'; };
+      const fs = [...FOLDERS].sort((a, b) => a.name.localeCompare(b.name)), tags = listTags();
+      $('[data-sl]', m.el).innerHTML = (fs.length ? `<div class="sp-list">${fs.map(f => `<div class="sp-row sp-edit" style="--c:${esc(f.color || S.accent)}"><i class="sp-dot"></i><span>${esc(f.name)}<small>${cnt(f.id)}</small></span><button class="btn small" data-edit="${f.id}">Edit</button></div>`).join('')}</div>`
+        : `<p class="hint">No subjects yet. Add one for each course you take, e.g. <i>Aircraft Design</i>.</p>`) +
+        (tags.length ? `<div class="lib-sec" style="margin:16px 0 6px">From your pasted lists</div><div class="sp-list">${tags.map(t => `<div class="sp-row sp-edit" style="--c:${esc(tagColor(t))}"><i class="sp-dot"></i><span>${esc(t)}<small>${cnt('tag:' + t)}</small></span><button class="btn small" data-mk="${esc(t)}">Make subject</button></div>`).join('')}</div>` : '');
+    };
+    m.el.addEventListener('click', guard(async e => {
+      const ed = e.target.closest('[data-edit]'); if (ed) { if (await subjectForm(folderById(ed.dataset.edit))) draw(); return; }
+      const mk = e.target.closest('[data-mk]');
+      if (mk) {
+        const f = await subjectForm(null, mk.dataset.mk); if (!f) return;
+        await loadPlan(); PLAN.tasks.forEach(t => { if (t.tag === mk.dataset.mk && !t.folderId) { t.folderId = f.id; delete t.tag; } }); await savePlan(); draw(); return;
+      }
+      if (e.target.closest('[data-new]')) { if (await subjectForm()) draw(); }
+    }));
+    draw();
+    m.onClose = () => res();
+  });
 }
 
 // ---------- edit one reminder ----------
@@ -531,77 +633,75 @@ function subjectGroupsHtml(list) {      // compact version for the Reminders pan
 renderPlanner = async function (box) {
   await loadPlan(); updatePlannerCount();
   if (!FOLDERS.length) FOLDERS = await db.all('folders');
+  let root = $('.planner2', box);
+  if (!root) {                       // the shell (and the add box in it) is built once, so typing is never interrupted
+    box.innerHTML = `<div class="planner2"><div class="pl-stats" data-stats></div><div class="pl-cmp" data-cmp></div><div class="pl-dyn" data-dyn></div></div>`;
+    root = $('.planner2', box);
+    root._cmp = makeComposer($('[data-cmp]', root), { subj: () => planFilter === 'general' ? '' : planFilter, onAdd: () => renderPlanner(box) });
+    wirePlanner2(root, box);
+  }
   const inF = x => !planFilter || (x.text !== undefined ? subjKey(x) : examKey(x)) === planFilter;
   const all = PLAN.tasks, open = all.filter(t => !t.done);
   const exams = [...PLAN.exams].sort((a, b) => a.date.localeCompare(b.date)), upEx = exams.filter(x => daysTo(x.date) >= 0);
   const late = open.filter(isLate).length, today = open.filter(t => t.due && !isLate(t) && daysTo(t.due) === 0).length;
   const week = open.filter(t => t.due && daysTo(t.due) >= 1 && daysTo(t.due) <= 7).length, nx = upEx[0];
   const stat = (n, label, c, f) => `<button class="pl-stat${n ? '' : ' zero'}" style="--c:${c}" ${f ? `data-jump="${f}"` : ''}><b>${n}</b><span>${label}</span></button>`;
-  const keys = subjectKeys(all.filter(t => !t.done || S.planShowDone), upEx);
-  if (planFilter && !keys.includes(planFilter)) keys.push(planFilter);
+  $('[data-stats]', root).innerHTML = stat(late, 'Overdue', '#e5484d', 'Overdue') + stat(today, 'Due today', '#f08c00', 'Today') + stat(week, 'Next 7 days', S.accent) +
+    `<button class="pl-stat${nx ? '' : ' zero'}" style="--c:${nx ? esc(subjColor(nx.folderId)) : '#8a8f98'}" ${nx ? `data-exam="${nx.id}"` : 'data-padd="exam"'}><b>${nx ? (daysTo(nx.date) === 0 ? 'Today' : daysTo(nx.date)) : '–'}</b><span>${nx ? (daysTo(nx.date) === 0 ? '' : 'days to ') + esc(nx.title) : 'No exams yet'}</span></button>`;
+
+  const folderKeys = [...FOLDERS].sort((a, b) => a.name.localeCompare(b.name)).map(f => f.id);
+  const used = new Set(subjectKeys(all.filter(t => !t.done || S.planShowDone), upEx));
+  const chipKeys = [...folderKeys, ...[...used].filter(k => !folderKeys.includes(k))];   // every subject, even empty ones
+  if (planFilter && !chipKeys.includes(planFilter)) planFilter = '';
   const fTasks = all.filter(t => inF(t) && (!t.done || S.planShowDone)), fOpen = fTasks.filter(t => !t.done), fDone = fTasks.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
   const fEx = upEx.filter(inF), pastEx = exams.filter(x => daysTo(x.date) < 0 && inF(x)).reverse();
 
   let tasksHtml;
   if (S.planGroup === 'subject') {
-    const ks = planFilter ? [planFilter] : keys;
+    const ks = planFilter ? [planFilter] : [...folderKeys, ...[...used].filter(k => !folderKeys.includes(k))];
     tasksHtml = ks.length ? `<div class="subj-grid">${ks.map(k => {
       const s = subjInfo(k), ts = all.filter(t => subjKey(t) === k), op = ts.filter(t => !t.done).sort(byDue), dn = ts.filter(t => t.done);
       const recent = dn.filter(t => Date.now() - (t.doneAt || 0) < 30 * 864e5).length, total = op.length + recent, pct = total ? Math.round(recent / total * 100) : 0;
-      const ex = upEx.find(x => examKey(x) === k), lateN = op.filter(isLate).length;
+      const ex = upEx.find(x => examKey(x) === k), lateN = op.filter(isLate).length, fid = k.startsWith('tag:') || k === 'general' ? '' : k;
       return `<section class="subj-card" style="--c:${esc(s.color)}">
-        <div class="sc-head"><i class="sc-dot"></i><b>${esc(s.name)}</b>${lateN ? `<span class="sc-late">${lateN} overdue</span>` : ''}<button class="icon-btn sc-add" data-sadd="${esc(k)}" title="Add a task for ${esc(s.name)}">${icon('plus')}</button></div>
+        <div class="sc-head"><i class="sc-dot"></i><b>${esc(s.name)}</b>${lateN ? `<span class="sc-late">${lateN} overdue</span>` : ''}${fid ? `<button class="icon-btn sc-more" data-sedit="${fid}" title="Rename or recolor">${icon('edit')}</button>` : ''}<button class="icon-btn sc-add" data-sadd="${esc(k)}" title="Add a task for ${esc(s.name)}">${icon('plus')}</button></div>
         <div class="sc-meta"><span>${op.length ? `${op.length} to do` : 'Nothing to do'}${recent ? ` · ${recent} done` : ''}</span>${ex ? `<button class="sc-exam" data-exam="${ex.id}">📚 ${esc(ex.title)} · ${daysTo(ex.date) === 0 ? 'today' : daysTo(ex.date) + 'd'}</button>` : ''}</div>
         ${total ? `<div class="sc-prog"><i style="width:${pct}%"></i></div>` : ''}
         ${op.length ? `<div class="task-list">${op.map(t => remRow(t, false)).join('')}</div>` : `<div class="sc-empty">${recent ? 'All done 🎉' : 'No tasks yet. Tap + to add one.'}</div>`}
         ${S.planShowDone && dn.length ? `<div class="task-list sc-done">${dn.sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0)).slice(0, 10).map(t => remRow(t, false)).join('')}</div>` : ''}
-      </section>`; }).join('')}</div>` : '';
+      </section>`; }).join('')}<button class="subj-card sc-new" data-newsubj>${icon('plus')}<b>New subject</b><span>Add a course you take</span></button></div>`
+      : `<div class="rem-empty">${icon('folder')}<b>No subjects yet</b><span>Add one for each course, then file tasks and exams under it.</span><button class="btn primary" data-newsubj>${icon('plus')}New subject</button></div>`;
   } else {
-    tasksHtml = dateGroupsHtml(fOpen) + (S.planShowDone && fDone.length ? `<div class="tg-head">Done · ${fDone.length}</div><div class="task-list">${fDone.slice(0, 40).map(t => remRow(t)).join('')}</div>` : '');
+    tasksHtml = fOpen.length || (S.planShowDone && fDone.length) ? dateGroupsHtml(fOpen) + (S.planShowDone && fDone.length ? `<div class="tg-head">Done · ${fDone.length}</div><div class="task-list">${fDone.slice(0, 40).map(t => remRow(t)).join('')}</div>` : '')
+      : `<div class="rem-empty">${icon('bell')}<b>${planFilter ? 'Nothing to do for ' + esc(subjInfo(planFilter).name) : 'Nothing to do'}</b><span>Type above to add a task. Words like <i>today</i>, <i>fri</i>, <i>27th</i>, <i>5pm</i> set the date; you can change it with the 📅 button before adding.</span></div>`;
   }
-  const emptyTasks = !fOpen.length && !(S.planGroup === 'subject' && keys.length && !planFilter);
-
-  box.innerHTML = `<div class="planner2">
-    <div class="pl-stats">${stat(late, 'Overdue', '#e5484d', 'Overdue')}${stat(today, 'Due today', '#f08c00', 'Today')}${stat(week, 'Next 7 days', S.accent)}
-      <button class="pl-stat${nx ? '' : ' zero'}" style="--c:${nx ? esc(subjColor(nx.folderId)) : '#8a8f98'}" ${nx ? `data-exam="${nx.id}"` : 'data-padd="exam"'}><b>${nx ? (daysTo(nx.date) === 0 ? 'Today' : daysTo(nx.date)) : '–'}</b><span>${nx ? (daysTo(nx.date) === 0 ? '' : 'days to ') + esc(nx.title) : 'No exams yet'}</span></button></div>
-    <div class="pl-add"><span class="pl-add-ic">${icon('plus')}</span><input type="text" data-qadd placeholder="Add a task… e.g. Lab report due fri 5pm" enterkeyhint="done" autocomplete="off"><button class="btn primary small" data-qgo>Add</button></div>
-    <div class="pl-qhint" data-qhint hidden></div>
+  $('[data-dyn]', root).innerHTML = `
     <div class="pl-bar">
       <div class="pl-seg" data-group><button class="${S.planGroup !== 'subject' ? 'on' : ''}" data-v="date">${icon('calendar')}By date</button><button class="${S.planGroup === 'subject' ? 'on' : ''}" data-v="subject">${icon('folder')}By subject</button></div>
-      <label class="pl-done"><input type="checkbox" data-showdone ${S.planShowDone ? 'checked' : ''}><span>Show done</span></label>
+      <div class="pl-bar-r"><label class="pl-done"><input type="checkbox" data-showdone ${S.planShowDone ? 'checked' : ''}><span>Show done</span></label><button class="btn small" data-subjects>${icon('folder')}Subjects</button></div>
     </div>
-    ${keys.length > 1 || planFilter ? `<div class="rem-chips pl-filter"><button class="chip${!planFilter ? ' on' : ''}" data-filt="">All subjects</button>${keys.map(k => { const s = subjInfo(k), n = open.filter(t => subjKey(t) === k).length; return `<button class="chip${planFilter === k ? ' on' : ''}" data-filt="${esc(k)}" style="--c:${esc(s.color)}"><i class="sdot"></i>${esc(s.name)}${n ? `<small>${n}</small>` : ''}</button>`; }).join('')}</div>` : ''}
+    <div class="rem-chips pl-filter"><button class="chip${!planFilter ? ' on' : ''}" data-filt="">All</button>${chipKeys.map(k => { const s = subjInfo(k), n = open.filter(t => subjKey(t) === k).length; return `<button class="chip${planFilter === k ? ' on' : ''}" data-filt="${esc(k)}" style="--c:${esc(s.color)}"><i class="sdot"></i>${esc(s.name)}${n ? `<small>${n}</small>` : ''}</button>`; }).join('')}<button class="chip pl-newsubj" data-newsubj>${icon('plus')}Subject</button></div>
     <div class="plan-head"><h3 class="lib-sec">Exams</h3><div class="plan-btns"><button class="btn small" data-padd="exam">${icon('plus')}Exam</button></div></div>
     ${fEx.length ? `<div class="exam-row">${fEx.map(examCard).join('')}</div>` : `<div class="pl-none">No upcoming exams${planFilter ? ' for ' + esc(subjInfo(planFilter).name) : ''}. Add one for a countdown and a study plan.</div>`}
     <div class="plan-head"><h3 class="lib-sec">Tasks</h3>${S.planShowDone && all.some(t => t.done) ? `<div class="plan-btns"><button class="btn small" data-cleardone>Clear done</button></div>` : ''}</div>
-    ${emptyTasks ? `<div class="rem-empty">${icon('bell')}<b>${planFilter ? 'Nothing to do for ' + esc(subjInfo(planFilter).name) : 'Nothing to do'}</b><span>Type above to add a task. Words like <i>today</i>, <i>fri</i>, <i>27th</i>, <i>5pm</i> set the date. Mention a subject's name to file it there.</span></div>` : tasksHtml}
-    ${pastEx.length ? `<details class="task-group"><summary class="tg-head">Past exams · ${pastEx.length}</summary><div class="exam-row">${pastEx.map(examCard).join('')}</div></details>` : ''}
-  </div>`;
-
-  const root = $('.planner2', box), again = () => renderPlanner(box);
-  const q = $('[data-qadd]', root), hint = $('[data-qhint]', root);
-  const qSubj = () => folderInText(q.value)?.id ?? (planFilter && !planFilter.startsWith('tag:') && planFilter !== 'general' ? planFilter : null);
-  q.addEventListener('input', () => {
-    const p = parseWhen(q.value), f = qSubj(); hint.hidden = !q.value.trim();
-    hint.innerHTML = `${p.due ? `<b>📅 ${esc(dueLabel(p))}</b>` : '<span>No date</span>'}<b style="--c:${esc(f ? subjColor(f) : planFilter.startsWith('tag:') ? tagColor(planFilter.slice(4)) : '#8a8f98')}" class="qh-subj"><i class="sdot"></i>${esc(f ? subjName(f) : planFilter.startsWith('tag:') ? planFilter.slice(4) : 'General')}</b>`;
-  });
-  const qAdd = guard(async () => {
-    const raw = q.value.trim(); if (!raw) { q.focus(); return; }
-    const p = parseWhen(raw), f = qSubj();
-    await loadPlan(); PLAN.tasks.push({ id: uid(), text: p.text, folderId: f, ...(!f && planFilter.startsWith('tag:') ? { tag: planFilter.slice(4) } : {}), due: p.due, time: p.due ? p.time : '', done: false });
-    await savePlan(); toast(`✓ Added${p.due ? ' · ' + dueLabel(p) : ''}`, 1200); remCheck();
-    await again(); const nq = $('.planner2 [data-qadd]', box); if (matchMedia('(hover: hover)').matches) nq?.focus();
-  });
-  q.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); qAdd(); } });
-  $('[data-qgo]', root).onclick = qAdd;
-  $('[data-showdone]', root).onchange = e => { S.planShowDone = e.target.checked; saveSettings(); again(); };
+    ${tasksHtml}
+    ${pastEx.length ? `<details class="task-group"><summary class="tg-head">Past exams · ${pastEx.length}</summary><div class="exam-row">${pastEx.map(examCard).join('')}</div></details>` : ''}`;
+  root._cmp.draw();
+};
+function wirePlanner2(root, box) {
+  const again = () => renderPlanner(box);
+  root.addEventListener('change', e => { if (e.target.matches('[data-showdone]')) { S.planShowDone = e.target.checked; saveSettings(); again(); } });
   root.addEventListener('click', guard(async e => {
     const c = s => e.target.closest(s);
+    if (c('[data-cmp]')) return;
     if (c('[data-group] [data-v]')) { S.planGroup = c('[data-v]').dataset.v; saveSettings(); return again(); }
     if (c('[data-filt]')) { planFilter = c('[data-filt]').dataset.filt; return again(); }
-    if (c('[data-jump]')) { planFilter = ''; S.planGroup = 'date'; saveSettings(); await again(); [...$$('.tg-head', box)].find(h => h.textContent.startsWith(c('[data-jump]')?.dataset.jump || '§'))?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    if (c('[data-newsubj]')) { const f = await subjectForm(); if (f) { planFilter = f.id; await again(); } return; }
+    if (c('[data-subjects]')) { await subjectsFlow(); return again(); }
+    if (c('[data-sedit]')) { if (await subjectForm(folderById(c('[data-sedit]').dataset.sedit))) again(); return; }
+    if (c('[data-jump]')) { const j = c('[data-jump]').dataset.jump; planFilter = ''; S.planGroup = 'date'; saveSettings(); await again(); [...$$('.tg-head', root)].find(h => h.textContent.startsWith(j))?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (c('[data-cleardone]')) { const n = PLAN.tasks.filter(t => t.done).length; if (await confirmBox(`Remove ${n} finished task${n > 1 ? 's' : ''}?`, 'Clear')) { await loadPlan(); PLAN.tasks = PLAN.tasks.filter(t => !t.done); await savePlan(); again(); } return; }
-    if (c('[data-sadd]')) { const k = c('[data-sadd]').dataset.sadd; if (k.startsWith('tag:') || k === 'general') { planFilter = k; await again(); $('.planner2 [data-qadd]', box)?.focus(); return; } if (await remForm(null, k)) { again(); remCheck(); } return; }
+    if (c('[data-sadd]')) { root._cmp.setSubj(c('[data-sadd]').dataset.sadd); $('[data-cmp]', root).scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
     if (c('[data-padd]')) { if (await examForm(null, planFilter && !planFilter.includes(':') && planFilter !== 'general' ? planFilter : null)) again(); return; }
     const ex = c('[data-exam]'); if (ex) { const x = PLAN.exams.find(y => y.id === ex.dataset.exam); if (x && await examMenu(x)) again(); return; }
     const row = c('[data-task]'); if (!row) return;
@@ -613,7 +713,7 @@ renderPlanner = async function (box) {
     }
     if (await remForm(t)) { again(); remCheck(); }
   }));
-};
+}
 
 // ---------- boot ----------
 function bootReminders() {
