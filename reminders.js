@@ -469,6 +469,15 @@ function remBadges() {
 
 // ---------- Calendar (.ics with an alert 1 day before) ----------
 const icsEsc = s => String(s).replace(/[\\;,]/g, c => '\\' + c).replace(/\r?\n/g, '\\n');
+// When Calendar alerts you. Kept in the planner, so every device writes the same alerts.
+const calAlerts = () => ({ before: true, day: true, near: 60, ...(PLAN.calAlerts || {}) });
+function alarmTriggers(it) {
+  const a = calAlerts(), out = [];
+  if (a.before) out.push(it.time ? '-P1D' : '-PT16H');                         // the day before: 24 h before, or 8 AM the day before
+  if (a.day) out.push(it.time ? (a.near ? `-PT${a.near}M` : 'PT0M') : 'PT8H');  // on the day: shortly before, or 8 AM that morning
+  return out;
+}
+const nearText = n => n ? (n >= 60 ? `${n / 60} hour${n > 60 ? 's' : ''}` : `${n} minutes`) + ' before' : 'at the time';
 function toIcs(items, o = {}) {
   const stamp = o.stamp || new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, ''), ymd = d => isoDay(d).replace(/-/g, '');
   const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Inkbook//Reminders//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
@@ -480,7 +489,8 @@ function toIcs(items, o = {}) {
       L.push(`DTSTART:${ymd(s)}${hm(s)}`, `DTEND:${ymd(e)}${hm(e)}`);
     } else { const d = parseDay(it.due), n = new Date(d); n.setDate(n.getDate() + 1); L.push(`DTSTART;VALUE=DATE:${ymd(d)}`, `DTEND;VALUE=DATE:${ymd(n)}`); }
     L.push(`SUMMARY:${icsEsc(it.title)}`); if (it.desc) L.push(`DESCRIPTION:${icsEsc(it.desc)}`);
-    L.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc(it.title)}`, `TRIGGER:${it.time ? '-P1D' : '-PT16H'}`, 'END:VALARM', 'END:VEVENT');
+    for (const tr of it.triggers || alarmTriggers(it)) L.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc(it.title)}`, `TRIGGER:${tr}`, 'END:VALARM');
+    L.push('END:VEVENT');
   }
   L.push('END:VCALENDAR'); return L.join('\r\n');
 }
@@ -539,7 +549,8 @@ function feedIcs() {
     .map(t => ({ id: t.id, title: t.text + (subj(t) ? ' · ' + subj(t) : ''), due: t.due, time: t.time, desc: [subj(t), t.note].filter(Boolean).join('\n') }));
   const xs = PLAN.exams.filter(x => x.date && dueAt({ due: x.date, time: x.time }) > since)
     .map(x => ({ id: 'ex' + x.id, title: '📚 ' + x.title, due: x.date, time: x.time, desc: [subjName(x.folderId), x.where].filter(Boolean).join('\n') }));
-  return toIcs([...ts, ...xs], { name: 'Inkbook', stamp: '20260101T000000Z' });
+  const T = PLAN.calTest, test = T && Date.now() < T.at + 3600e3 ? [{ id: 'inkbook-test-' + T.at, title: '✅ Inkbook test alert', due: isoDay(new Date(T.at)), time: `${pad2(new Date(T.at).getHours())}:${pad2(new Date(T.at).getMinutes())}`, desc: 'If you got this alert, Calendar alerts work. It disappears by itself.', triggers: ['PT0M'] }] : [];
+  return toIcs([...ts, ...xs, ...test], { name: 'Inkbook', stamp: '20260101T000000Z' });
 }
 let csTimer = null, csBusy = false;
 function calSyncSoon(ms = 2500) {
@@ -584,11 +595,15 @@ async function calendarMenu() {
     const v = await menu('Calendar sync is on', [
       { head: CS.err ? '⚠️ Last update failed: ' + CS.err : `Up to date · updated ${agoText(CS.last)}${(CS.gists || []).length > 1 ? ` · ${CS.gists.length} calendar links` : ''}` },
       { label: CS.err ? 'Try again now' : 'Update Calendar now', value: 'now', icon: 'convert', hint: 'Happens by itself after every change, on any of your devices' },
-      { label: 'Subscribe again / copy the link', value: 'sub', icon: 'calendar', hint: 'If the Inkbook calendar is missing on this iPad' },
+      { label: 'When to alert me', value: 'alerts', icon: 'bell', hint: (() => { const a = calAlerts(); return [a.before && 'the day before', a.day && 'on the day (' + nearText(a.near) + ' if it has a time)'].filter(Boolean).join(' · ') || 'No alerts'; })() },
+      { label: 'Send a test alert', value: 'test', icon: 'check', hint: 'Checks that alerts reach this device' },
+      { label: 'Subscribe again / copy the link', value: 'sub', icon: 'calendar', hint: 'If the Inkbook calendar is missing on this device' },
       ...(CS.err ? [{ label: 'Paste a new GitHub key', value: 'key', icon: 'edit' }] : []),
       { label: 'Turn off Calendar sync', value: 'off', icon: 'trash', danger: true }]);
     if (v === 'now') { toast('Updating Calendar…', 1200); CS.scanAt = 0; if (await calSyncNow(true)) toast('📅 Done. Calendar shows it on its next refresh (usually within 15–60 min).', 4000); else toast('⚠️ ' + CS.err, 6000); }
     if (v === 'sub') calSubscribeStep();
+    if (v === 'alerts') await calAlertsForm();
+    if (v === 'test') await calTestFlow();
     if (v === 'key') await calSetupFlow(true);
     if (v === 'off' && await confirmBox('Stop syncing and delete the private calendar link? The Inkbook calendar on your iPad will empty. You can then remove it in Settings → Calendar → Accounts.', 'Turn off')) {
       try { await gh(`/gists/${CS.gistId}`, CS.token, { method: 'DELETE' }); } catch { }
@@ -601,6 +616,36 @@ async function calendarMenu() {
     { label: 'One-time export', value: 'once', icon: 'download', hint: 'Adds a copy now. Later edits won’t update it' }]);
   if (v === 'sync') await calSetupFlow();
   if (v === 'once') await calendarAllFlow();
+}
+function calAlertsForm() {
+  return new Promise(res => {
+    const a = calAlerts();
+    const m = openModal(`<h2>When should Calendar alert you?</h2>
+      <label class="toggle"><input type="checkbox" data-before ${a.before ? 'checked' : ''}><span><b>The day before</b><br><small>8 AM the day before, or 24 hours before if it has a time</small></span></label>
+      <label class="toggle"><input type="checkbox" data-day ${a.day ? 'checked' : ''}><span><b>On the day</b><br><small>8 AM that morning, or shortly before if it has a time</small></span></label>
+      <div class="field" data-nearf><label class="lbl">“Shortly before” means</label><div class="seg" data-near>${segHtml([[0, 'At the time'], [15, '15 min'], [30, '30 min'], [60, '1 hour'], [120, '2 hours']], a.near)}</div></div>
+      <p class="hint">Tip: give a reminder a <b>time</b> to be alerted shortly before it. A reminder without a time alerts at 8 AM, so one added for later today won't alert until next time.</p>
+      <div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" data-ok>Save</button></div>`, 'small');
+    let near = a.near; wireSeg($('[data-near]', m.el), v => (near = +v));
+    const vis = () => { $('[data-nearf]', m.el).style.opacity = $('[data-day]', m.el).checked ? 1 : .4; }; $('[data-day]', m.el).onchange = vis; vis();
+    let ok = false;
+    $('[data-ok]', m.el).onclick = guard(async () => {
+      await loadPlan(); PLAN.calAlerts = { before: $('[data-before]', m.el).checked, day: $('[data-day]', m.el).checked, near };
+      await savePlan(); ok = true; m.close(); await calSyncNow(true); toast('📅 Alerts updated in Calendar', 2000);
+    });
+    m.onClose = () => res(ok);
+  });
+}
+async function calTestFlow() {
+  const at = new Date(Date.now() + 15 * 60e3); at.setSeconds(0, 0); at.setMinutes(Math.ceil(at.getMinutes() / 5) * 5);
+  await loadPlan(); PLAN.calTest = { at: +at }; await savePlan(); await calSyncNow(true);
+  const t = at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }), ready = new Date(Date.now() + 6 * 60e3).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  openModal(`<h2>Test alert at ${esc(t)}</h2>
+    <ol class="cs-list"><li>Wait until about <b>${esc(ready)}</b> (GitHub needs ~5 minutes to publish the change).</li>
+    <li>Open <b>Calendar</b> → <b>Calendars</b> at the bottom → pull the list down to refresh. “✅ Inkbook test alert” should appear at ${esc(t)}.</li>
+    <li>Lock your phone. At <b>${esc(t)}</b> you should get an alert.</li></ol>
+    <p class="hint"><b>No alert?</b> Check Settings → Apps → Calendar → Calendar Accounts → Subscribed Calendars → Inkbook → <b>Remove Alerts</b> is <b>off</b>, Settings → Notifications → <b>Calendar</b> is allowed, and Focus / Do Not Disturb is off. The test event removes itself an hour later.</p>
+    <div class="modal-actions"><button class="btn primary" data-close>OK</button></div>`, 'small');
 }
 function calSetupFlow(keyOnly = false) {
   return new Promise(res => {
