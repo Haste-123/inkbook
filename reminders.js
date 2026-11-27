@@ -544,7 +544,7 @@ function feedIcs() {
 let csTimer = null, csBusy = false;
 function calSyncSoon(ms = 2500) {
   if (!CS?.on) return;
-  CS.dirty = true; csSave(); clearTimeout(csTimer); csTimer = setTimeout(() => calSyncNow(), ms);
+  CS.dirty = true; csSave(); clearTimeout(csTimer); csTimer = setTimeout(() => calSyncNow(), ms); refreshStatusChips();
 }
 // Every Inkbook calendar file on the account (a second device may have made its own): all of them get updated
 async function inkbookGists(token) {
@@ -555,6 +555,7 @@ async function calSyncNow(force = false) {
   if (!CS?.on || csBusy) return false;
   if (!navigator.onLine) { CS.dirty = true; csSave(); return false; }        // not an error: it goes out when you're back online
   csBusy = true;
+  refreshStatusChips();
   try {
     await loadPlan();
     const ics = feedIcs(), h = csHash(ics);
@@ -573,7 +574,7 @@ async function calSyncNow(force = false) {
     CS.err = e.message; csSave();
     if (e.status === 401 || e.status === 403 || e.status === 404) toast('📅 Calendar sync stopped: ' + e.message + '. Open Reminders → Calendar to fix it.', 6000);
     return false;
-  } finally { csBusy = false; REM?.drawCal?.(); }
+  } finally { csBusy = false; REM?.drawCal?.(); refreshStatusChips(); }
 }
 globalThis.onPlanSaved = () => calSyncSoon();
 const agoText = t => { if (!t) return 'never'; const m = Math.round((Date.now() - t) / 6e4); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : new Date(t).toLocaleDateString(); };
@@ -752,7 +753,7 @@ renderPlanner = async function (box) {
   // summary: semester week + three small counters
   const st = semText();
   const counts = [[late, 'overdue', 'late', 'Overdue'], [today, 'today', 'today', 'Today'], [week, 'next 7 days', 'week', '']].filter(c => c[0]);
-  $('[data-sum]', root).innerHTML = (st ? `<button class="sem-card" data-sem title="Change semester"><div class="sem-top"><b>${esc(st.big)}</b><span>${esc(st.small)}</span></div><div class="sem-prog"><i style="width:${st.pct}%"></i></div></button>` : '') +
+  $('[data-sum]', root).innerHTML = statusChipHtml() + (st ? `<button class="sem-card" data-sem title="Change semester"><div class="sem-top"><b>${esc(st.big)}</b><span>${esc(st.small)}</span></div><div class="sem-prog"><i style="width:${st.pct}%"></i></div></button>` : '') +
     `<div class="pl-counts">${counts.length ? counts.map(([n, l, c, j]) => `<button class="pl-count ${c}" ${j ? `data-jump="${j}"` : ''}><b>${n}</b>${l}</button>`).join('') : `<span class="pl-clear">${icon('check')}All caught up</span>`}</div>`;
 
   const folderKeys = [...FOLDERS].sort((a, b) => a.name.localeCompare(b.name)).map(f => f.id);
@@ -827,6 +828,42 @@ function wirePlanner2(root, box) {
     if (await remForm(t)) { again(); remCheck(); }
   }));
 }
+
+// ---------- "Everything is up to date" (notes sync + Calendar) ----------
+function statusParts() {
+  const out = [];
+  if (typeof SY !== 'undefined' && SY?.on) out.push({ k: 'notes', name: 'Notes & planner', state: syncing ? 'busy' : SY.err ? 'err' : !navigator.onLine || syDirty.size ? 'wait' : 'ok', last: SY.last, err: SY.err });
+  if (CS?.on) out.push({ k: 'cal', name: 'Calendar', state: csBusy ? 'busy' : CS.err ? 'err' : CS.dirty || !navigator.onLine ? 'wait' : 'ok', last: CS.last, err: CS.err });
+  return out;
+}
+const ST_LBL = { ok: 'Up to date', busy: 'Updating…', wait: 'Waiting to sync', err: 'Needs attention' };
+const ST_IC = { ok: 'check', busy: 'sync', wait: 'clock', err: 'bell' };
+function statusChipHtml() {
+  const ps = statusParts(); if (!ps.length) return '';
+  const st = ['err', 'busy', 'wait', 'ok'].find(s => ps.some(p => p.state === s));
+  return `<button class="st-chip st-${st}" data-status title="Sync and Calendar status">${icon(ST_IC[st])}<span>${ST_LBL[st]}</span></button>`;
+}
+globalThis.statusChipHtml = statusChipHtml;
+function refreshStatusChips() { const h = statusChipHtml(); for (const b of $$('[data-status]')) { if (!h) { b.remove(); continue; } const t = document.createElement('template'); t.innerHTML = h; b.replaceWith(t.content.firstElementChild); } }
+function statusSheet() {
+  const draw = () => {
+    const ps = statusParts();
+    return `<h2>Sync status</h2><div class="st-list">${ps.map(p => `<div class="st-row st-${p.state}"><span class="st-ic">${icon(ST_IC[p.state])}</span><div class="st-t"><b>${p.name}</b><small>${p.state === 'err' ? esc(p.err) : p.state === 'busy' ? 'Updating now…' : p.state === 'wait' ? (navigator.onLine ? 'Changes waiting, going out in a few seconds' : 'Offline: goes out when you’re back online') : 'Up to date · ' + agoText(p.last)}</small></div><button class="btn small" data-now="${p.k}">${icon('sync')}Now</button></div>`).join('')}</div>
+      ${CS?.on ? `<p class="hint">Calendar shows a change <b>5–60 minutes</b> after it's sent: GitHub keeps each version of the calendar file for 5 minutes, then your iPhone and iPad download it on their own schedule. To check sooner, open Calendar → <b>Calendars</b> and pull the list down.</p>` : ''}
+      <div class="modal-actions"><button class="btn primary" data-close>Done</button></div>`;
+  };
+  const m = openModal(draw(), 'small');
+  const t = setInterval(() => { if (!m.el.isConnected) return clearInterval(t); m.el.innerHTML = draw(); }, 1000);
+  m.el.addEventListener('click', guard(async e => {
+    const b = e.target.closest('[data-now]'); if (!b) return;
+    if (b.dataset.now === 'notes') await syncNow().catch(err => toast('⚠️ ' + err.message, 5000));
+    else { CS.scanAt = 0; await calSyncNow(true); }
+    m.el.innerHTML = draw();
+  }));
+}
+document.addEventListener('click', e => { if (e.target.closest('[data-status]')) { e.stopPropagation(); statusSheet(); } }, true);
+setInterval(refreshStatusChips, 30000);
+addEventListener('online', refreshStatusChips); addEventListener('offline', refreshStatusChips);
 
 // ---------- the editor top bar never scrolls ----------
 function fitToolbar() {

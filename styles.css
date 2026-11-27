@@ -1300,3 +1300,27 @@ body.reading .page { touch-action: pan-x pan-y; }
 .popover.pop-more { overflow: hidden; display: flex; flex-direction: column; max-height: min(78dvh, 640px); }
 .pop-more .mm-head, .pop-more .mm-tabs { flex-shrink: 0; }
 .pop-more .mm-list { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; overscroll-behavior: contain; }
+
+/* v23 sync status chip */
+.st-chip { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 7px 12px; font: 650 13px -apple-system, system-ui, sans-serif; align-self: center; flex-shrink: 0; }
+.st-chip svg.i { width: 16px; height: 16px; }
+.st-chip.st-ok { background: color-mix(in srgb, #30a46c 14%, transparent); color: #2b9a63; }
+.st-chip.st-busy { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.st-chip.st-busy svg.i, .st-row.st-busy .st-ic svg.i { animation: syspin 1s linear infinite; }
+.st-chip.st-wait { background: var(--surface-2); color: var(--muted); }
+.st-chip.st-err { background: color-mix(in srgb, #e5484d 14%, transparent); color: #e5484d; }
+.plan-head .st-chip { margin-left: auto; margin-right: 8px; }
+.td-date .st-chip { align-self: flex-start; margin-top: 6px; }
+.st-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.st-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+.st-row + .st-row { border-top: 1px solid var(--border); }
+.st-ic { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; flex-shrink: 0; }
+.st-ic svg.i { width: 18px; height: 18px; }
+.st-row.st-ok .st-ic { background: color-mix(in srgb, #30a46c 15%, transparent); color: #2b9a63; }
+.st-row.st-busy .st-ic { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+.st-row.st-wait .st-ic { background: var(--surface-2); color: var(--muted); }
+.st-row.st-err .st-ic { background: color-mix(in srgb, #e5484d 15%, transparent); color: #e5484d; }
+.st-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.st-t b { font-size: 15px; }
+.st-t small { font-size: 12.5px; color: var(--muted); }
+.st-row .btn.small { display: inline-flex; align-items: center; gap: 5px; }

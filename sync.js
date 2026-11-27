@@ -217,6 +217,7 @@ async function afterRemoteChanges(changed) {
 
 // ---------- status ----------
 function setSyncStatus(s) {
+  setTimeout(() => globalThis.refreshStatusChips?.(), 0);
   const st = s || (!SY?.on ? 'off' : SY.err ? 'error' : navigator.onLine ? 'ok' : 'offline');
   for (const b of $$('.sync-btn')) {
     b.dataset.state = st;
