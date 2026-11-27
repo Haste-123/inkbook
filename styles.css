@@ -1094,7 +1094,8 @@ input[type=date], input[type=time] { width: 100%; box-sizing: border-box; }
 .tb-end .rec-btn.on { width: auto; padding: 0 10px; }
 .tb-end .rec-btn svg.i, .tb-end .icon-btn svg.i { width: 21px; height: 21px; }
 @media (max-width: 1099px) { .tb-wide { display: none !important; } }
-.toolbar.tight1 #redoBtn, .toolbar.tight2 .tool-extra, .toolbar.tight3 #imageBtn, .toolbar.tight4 #sideBtn, .toolbar.tight5 .opts-inline { display: none !important; }
+/* when the bar is short of room, these go first, in order; the sidebar button always stays */
+.toolbar.tight1 #redoBtn, .toolbar.tight2 .st-slot.mini, .toolbar.tight3 .tool-extra, .toolbar.tight4 #imageBtn, .toolbar.tight5 .opts-inline { display: none !important; }
 
 /* v20 calmer planner + semester */
 .planner2 { gap: 14px; }
