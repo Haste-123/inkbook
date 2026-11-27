@@ -78,7 +78,7 @@ function makeTableEl(p, t) {
     const b = e.target.closest('[data-tb]'); if (!b) return;
     const a = b.dataset.tb, before = snap(p), nt = structuredClone(t), rows = nt.cells.length, cols = nt.cols.length;
     if (a === 'graph') return tableGraph(p, t);
-    if (a === 'del') { if (await confirmBox('Delete this table?')) { p.tables = p.tables.filter(x => x !== t); pushUndo(p, before); refreshPage(p); } return; }
+    if (a === 'del') { if (await confirmBox('Delete this table?')) { p.tables = p.tables.filter(x => x !== t); stopTableEditing(); pushUndo(p, before); refreshPage(p); } return; }
     if (a === 'row+') nt.cells.splice(focus.r + 1, 0, Array(cols).fill(''));
     if (a === 'row-') { if (rows <= 1) return toast('A table needs at least one row'); nt.cells.splice(focus.r, 1); }
     if (a === 'col+') { nt.cells.forEach(row => row.splice(focus.c + 1, 0, '')); nt.cols.splice(focus.c + 1, 0, 1 / cols); }
@@ -94,7 +94,8 @@ function makeTableEl(p, t) {
   g.addEventListener('pointerdown', e => {
     e.preventDefault(); e.stopPropagation(); try { g.setPointerCapture(e.pointerId); } catch { }
     const host = E.els.get(p.id), a = { rect: host.getBoundingClientRect(), page: p }, start = toPt(a, e), ox = t.x, oy = t.y;
-    const mv = ev => { const q = toPt(a, ev); t.x = Math.round(clamp(ox + q.x - start.x, 0, Math.max(0, p.w - 40))); t.y = Math.round(clamp(oy + q.y - start.y, 0, p.h - 30)); positionTable(d, t); };
+    const tb = tableBox(p, t), th = tb[3] - tb[1];
+    const mv = ev => { const q = toPt(a, ev); t.x = Math.round(clamp(ox + q.x - start.x, 0, Math.max(0, p.w - t.w))); t.y = Math.round(clamp(oy + q.y - start.y, 0, Math.max(0, p.h - th))); positionTable(d, t); };
     const up = () => { g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); g.removeEventListener('pointercancel', up); markDirty(p); };
     g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up);
   });

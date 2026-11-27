@@ -269,7 +269,34 @@ async function searchPages() {
 }
 globalThis.resetSearchIndex = () => { SIDX = null; };
 
+// ---------- undo for edits inside text boxes and tables ----------
+// Typing, moving, resizing and styling a text box or table change it in place. Each "session" (from when you
+// start until you finish: lift the Pencil or leave the box) becomes one undo step, so undo/redo never lose typing.
+const editPend = new Map();
+const editSig = p => JSON.stringify([p.texts.filter(t => (t.text || '').trim()), p.tables || []]);   // an abandoned empty box isn't a change
+function editStart(e) {
+  if (!E.nb) return;
+  const it = e.target.closest?.('.text-item, .tbl'); if (!it) return;
+  const pg = it.closest('.page'), p = pg && E.byId.get(pg.dataset.id); if (!p || editPend.has(p.id)) return;
+  editPend.set(p.id, { p, before: snap(p), sig: editSig(p) });
+}
+function editCommit() {
+  for (const [id, x] of editPend) {
+    const el = E.els.get(id);
+    if (el?.contains(document.activeElement) && document.activeElement.closest('.text-item, .tbl')) continue;   // still typing in it
+    editPend.delete(id);
+    if (E.byId.get(id) === x.p && editSig(x.p) !== x.sig) pushUndo(x.p, x.before);
+  }
+}
+
 function bootEdit() {
+  pagesEl.addEventListener('pointerdown', editStart, true);
+  pagesEl.addEventListener('focusin', editStart, true);
+  document.addEventListener('pointerup', () => setTimeout(editCommit, 0), true);
+  document.addEventListener('focusout', () => setTimeout(editCommit, 0), true);
+  { const _l = leaveNotebook; leaveNotebook = async function (...a) { document.activeElement?.blur?.(); editCommit(); editPend.clear(); return _l(...a); }; }
+  // undo while still typing: finish (and so undo) the typing first
+  { const _ah = applyHist; applyHist = function (from, to, key) { if (document.activeElement?.closest?.('.text-item, .tbl')) document.activeElement.blur(); editCommit(); return _ah(from, to, key); }; }
   setTimeout(() => searchPages().catch(() => { }), 4000);          // build it in the background, so even the first search is quick
   const _open = openNotebook;
   openNotebook = async function (...a) { const r = await _open(...a); requestAnimationFrame(() => groupOldSaved().catch(console.warn)); return r; };

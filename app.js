@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '31';
+const APP_VERSION = '32';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -1082,7 +1082,7 @@ function selScreenRect() {
 }
 
 // ---------- Undo ----------
-const snap = p => ({ strokes: p.strokes.slice(), texts: p.texts.slice(), images: p.images.slice(), tables: (p.tables || []).map(t => structuredClone(t)), links: (p.links || []).map(l => ({ ...l })), geo: { w: p.w, h: p.h, bgX: p.bgX, bgY: p.bgY, bgW: p.bgW, bgH: p.bgH } });
+const snap = p => ({ strokes: p.strokes.slice(), texts: p.texts.map(t => ({ ...t })), images: p.images.slice(), tables: (p.tables || []).map(t => structuredClone(t)), links: (p.links || []).map(l => ({ ...l })), geo: { w: p.w, h: p.h, bgX: p.bgX, bgY: p.bgY, bgW: p.bgW, bgH: p.bgH } });
 function pushUndo(p, before) {
   E.undo.push({ id: p.id, before, after: snap(p) }); if (E.undo.length > 300) E.undo.shift();
   E.redo = []; markDirty(p); updateUndoBtns();
@@ -1090,11 +1090,11 @@ function pushUndo(p, before) {
 function applyHist(from, to, key) {
   clearSelection(); const u = from.pop(); if (!u) return;
   if (u.group) {
-    for (const g of u.group) { const p = E.byId.get(g.id); if (!p) continue; const v = g[key]; p.strokes = v.strokes.slice(); p.texts = v.texts.slice(); p.images = v.images.slice(); p.tables = (v.tables || []).map(t => structuredClone(t)); p.links = (v.links || []).map(l => ({ ...l })); refreshPage(p); markDirty(p); }
+    for (const g of u.group) { const p = E.byId.get(g.id); if (!p) continue; const v = g[key]; p.strokes = v.strokes.slice(); p.texts = v.texts.map(t => ({ ...t })); p.images = v.images.slice(); p.tables = (v.tables || []).map(t => structuredClone(t)); p.links = (v.links || []).map(l => ({ ...l })); refreshPage(p); markDirty(p); }
     to.push(u); updateUndoBtns(); return;
   }
   const p = E.byId.get(u.id); if (!p) return applyHist(from, to, key);
-  p.strokes = u[key].strokes.slice(); p.texts = u[key].texts.slice(); p.images = u[key].images.slice();
+  p.strokes = u[key].strokes.slice(); p.texts = u[key].texts.map(t => ({ ...t })); p.images = u[key].images.slice();
   if (u[key].tables) p.tables = u[key].tables.map(t => structuredClone(t));
   if (u[key].links) p.links = u[key].links.map(l => ({ ...l }));
   const g = u[key].geo, resized = g && (g.w !== p.w || g.h !== p.h);
@@ -1790,7 +1790,8 @@ function makeTextEl(p, t) {
   g.addEventListener('pointerdown', e => {
     e.preventDefault(); e.stopPropagation(); try { g.setPointerCapture(e.pointerId); } catch { }
     const host = E.els.get(p.id), a = { rect: host.getBoundingClientRect(), page: p }, start = toPt(a, e), ox = t.x, oy = t.y;
-    const mv = ev => { const q = toPt(a, ev); t.x = clamp(ox + q.x - start.x, 0, Math.max(0, p.w - (t.w || 20))); t.y = clamp(oy + q.y - start.y, 0, p.h - 20); positionText(p, t, d); };
+    const tb = textBox(p, t), tw = tb[2] - tb[0], th = tb[3] - tb[1];
+    const mv = ev => { const q = toPt(a, ev); t.x = clamp(ox + q.x - start.x, 0, Math.max(0, p.w - tw)); t.y = clamp(oy + q.y - start.y, 0, Math.max(0, p.h - th)); positionText(p, t, d); };
     const up = () => { g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); g.removeEventListener('pointercancel', up); markDirty(p); };
     g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up);
   });
