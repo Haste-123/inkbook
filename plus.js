@@ -348,6 +348,9 @@ async function followLink(l) {
   if (to.url) { window.open(to.url, '_blank', 'noopener'); return; }
   const from = { nb: E.nb.id, page: E.pages[currentIndex()].id, top: scroller.scrollTop, left: scroller.scrollLeft, title: E.nb.title, no: currentIndex() + 1 };
   if (to.nb && to.nb !== E.nb.id) {
+    const tn = await db.get('notebooks', to.nb);
+    if (!tn) return toast('That notebook was deleted. Hold the link to change or remove it.', 3500);
+    if (to.page && !tn.pages.includes(to.page)) return toast('That page was deleted. Hold the link to change or remove it.', 3500);
     await globalThis.onLeaveNb?.(); E.nb.lastPage = currentIndex(); await flush(); await saveNb();
     await openNotebook(to.nb, { pageId: to.page });
   } else {

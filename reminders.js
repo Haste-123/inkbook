@@ -509,7 +509,10 @@ function toIcs(items, o = {}) {
     for (const tr of it.triggers || alarmTriggers(it)) L.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc(it.title)}`, `TRIGGER:${tr}`, 'END:VALARM');
     L.push('END:VEVENT');
   }
-  L.push('END:VCALENDAR'); return L.join('\r\n');
+  L.push('END:VCALENDAR');
+  // calendar lines may be at most 75 bytes: longer ones continue on the next line after a space
+  const enc = new TextEncoder(), fold = line => { if (enc.encode(line).length <= 75) return line; const out = []; let cur = ''; for (const ch of line) { if (enc.encode(cur + ch).length > (out.length ? 74 : 75)) { out.push(cur); cur = ''; } cur += ch; } out.push(cur); return out.join('\r\n '); };
+  return L.map(fold).join('\r\n');
 }
 function calendarFlow(items) {
   return new Promise(res => {
