@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '34';
+const APP_VERSION = '35';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -753,6 +753,8 @@ async function openNotebook(id, goto) {
   nb.sections ||= []; nb.items ||= [];
   const map = new Map((await db.pagesOf(id)).map(p => [p.id, normPage(p)]));
   E.nb = nb; E.pages = nb.pages.map(pid => map.get(pid)).filter(Boolean);
+  const lost = [...map.values()].filter(p => !nb.pages.includes(p.id));     // a page that exists but isn't listed (e.g. deleted on one device, edited on the other)
+  if (lost.length) { E.pages.push(...lost); setTimeout(() => toast(`Recovered ${lost.length} page${lost.length > 1 ? 's' : ''} at the end of this notebook`, 3500), 600); }
   if (!E.pages.length) { const p = newPage(nb); E.pages.push(p); await db.put('pages', p); }
   nb.pages = E.pages.map(p => p.id);
   E.byId = new Map(E.pages.map(p => [p.id, p]));
@@ -2103,8 +2105,7 @@ async function deletePage(i) {
 }
 async function movePage(i, d) {
   const j = i + d; if (j < 0 || j >= E.pages.length) return;
-  [E.pages[i], E.pages[j]] = [E.pages[j], E.pages[i]];
-  await saveNb(); buildPages(); renderEdSide(); scrollToPage(j);
+  return movePageTo(i, d > 0 ? i + 2 : i - 1);          // same as dragging a page: lessons and topics stay right
 }
 async function pageMenu(i) {
   const p = E.pages[i];
