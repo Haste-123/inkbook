@@ -90,9 +90,39 @@ async function remoteState() {
 }
 async function pool(items, n, fn) { let i = 0; await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) { const k = i++; await fn(items[k], k); } })); }
 
+// ---------- combining two versions of the same record ----------
+// b = how it was at the last sync, l = this device, r = the other device.
+// Lists of things with ids (tasks, exams…) are combined item by item, objects key by key;
+// only when the very same field changed on both sides does this device's value win.
+function merge3(b, l, r) {
+  const S = JSON.stringify, isObj = x => x && typeof x === 'object' && !Array.isArray(x);
+  if (S(l) === S(r)) return l;
+  if (S(l) === S(b)) return r;
+  if (S(r) === S(b)) return l;
+  if (l === undefined) return r;                                   // deleted on one side, edited on the other: keep the edit
+  if (r === undefined) return l;
+  const idList = a => Array.isArray(a) && a.every(x => isObj(x) && x.id != null);
+  if (idList(l) && idList(r)) {
+    const bm = new Map((idList(b) ? b : []).map(x => [x.id, x])), lm = new Map(l.map(x => [x.id, x])), rm = new Map(r.map(x => [x.id, x]));
+    const out = [];
+    for (const id of new Set([...l.map(x => x.id), ...r.map(x => x.id)])) {
+      const bv = bm.get(id), lv = lm.get(id), rv = rm.get(id);
+      if (bv && (!lv || !rv)) { const kept = lv || rv; if (S(kept) === S(bv)) continue; }   // deleted on one side and untouched on the other: stays deleted
+      const v = merge3(bv, lv, rv); if (v !== undefined) out.push(v);
+    }
+    return out;
+  }
+  if (isObj(l) && isObj(r)) {
+    const o = {}, bo = isObj(b) ? b : {};
+    for (const k of new Set([...Object.keys(l), ...Object.keys(r)])) { const v = merge3(bo[k], l[k], r[k]); if (v !== undefined) o[k] = v; }
+    return o;
+  }
+  return l;
+}
+
 // ---------- the sync ----------
 let syncing = false, syncAgain = false, syncT = null;
-function syncSoon(ms = 25000) { if (!SY?.on) return; clearTimeout(syncT); syncT = setTimeout(() => syncNow(), ms); }
+function syncSoon(ms = 8000) { if (!SY?.on) return; clearTimeout(syncT); syncT = setTimeout(() => syncNow(), ms); }
 async function loadState() { return (await db.get('blobs', SY_STATE)) || { head: null, base: {}, bfp: {} }; }
 const saveState = st => rawPut('blobs', st, SY_STATE);
 
@@ -126,14 +156,24 @@ async function syncNow({ full = false, progress = null } = {}) {
       }
     }
     // decide what moves
-    const up = [], down = [], delRemote = [], delLocal = [];
+    const up = [], down = [], delRemote = [], delLocal = [], merge = [];
     for (const p of new Set([...Object.keys(local), ...Object.keys(R.files), ...Object.keys(st.base)])) {
       const L = local[p]?.sha, Rm = R.files[p], B = st.base[p];
       if (L === Rm) { if (L) st.base[p] = L; else delete st.base[p]; continue; }
       if (L !== B && Rm === B) (L ? up : delRemote).push(p);
       else if (Rm !== B && L === B) (Rm ? down : delLocal).push(p);
-      else if (L && Rm) { up.push(p); if (B) conflicts++; }        // both changed: this device wins
+      else if (L && Rm) { if (p.endsWith('.json')) merge.push(p); else { up.push(p); if (B) conflicts++; } }   // both changed: combine them (files: this device wins)
       else if (L) up.push(p); else down.push(p);                     // one side deleted, the other edited: keep the edit
+    }
+    // 0. both devices changed the same record (e.g. the planner): combine the two instead of dropping one
+    for (const p of merge) {
+      const f = fromPath(p), get = sha => gha('/git/blobs/' + sha, {}, true).then(JSON.parse);
+      const [bv, rv] = await Promise.all([st.base[p] ? get(st.base[p]).catch(() => undefined) : undefined, get(R.files[p])]);
+      const mv = merge3(bv, JSON.parse(await local[p].content()), rv), s = JSON.stringify(mv);
+      await (f.store === 'blobs' ? rawPut('blobs', mv, f.key) : rawPut(f.store, mv));
+      local[p] = { path: p, sha: await gitSha(s), content: async () => s };
+      changedLocal.add(f.store + '|' + f.key);
+      if (local[p].sha === R.files[p]) st.base[p] = R.files[p]; else up.push(p);
     }
     // 1. bring GitHub's changes here
     let done = 0; const totalDown = down.length + delLocal.length;
@@ -200,7 +240,7 @@ async function syncNow({ full = false, progress = null } = {}) {
 // Show what arrived from the other device
 async function afterRemoteChanges(changed) {
   FOLDERS = await db.all('folders');
-  if (changed.has('blobs|meta:planner')) { await loadPlan(); remBadges?.(); globalThis.calSyncSoon?.(1500); }
+  if (changed.has('blobs|meta:planner')) { await loadPlan(); remBadges?.(); globalThis.calSyncSoon?.(1500); REM?.redraw?.(); }
   if (E.nb) {
     const nbId = E.nb.id, touched = changed.has('notebooks|' + nbId) || [...changed].some(c => c.startsWith('pages|') && E.byId.has(c.slice(6)));
     if (touched && !active) {
@@ -333,6 +373,8 @@ function bootSync() {
   const side = document.createElement('button'); side.id = 'syncSide'; side.innerHTML = `<span data-icon="cloud">${icon('cloud')}</span>Sync<small></small>`; side.onclick = () => guard(syncMenu)();
   $('#settingsBtn')?.before(side);
   setSyncStatus(); setInterval(() => setSyncStatus(syncing ? 'syncing' : undefined), 60000);
+  // while Inkbook is open, check for changes from your other device every minute
+  setInterval(() => { if (SY?.on && !document.hidden && !syncing && navigator.onLine) syncNow().catch(() => { }); }, 60000);
   addEventListener('online', () => { setSyncStatus(); syncSoon(1000); });
   addEventListener('offline', () => setSyncStatus());
   document.addEventListener('visibilitychange', () => { if (!SY?.on) return; if (document.hidden) { if (syDirty.size) syncNow().catch(() => { }); } else syncSoon(800); });
