@@ -93,7 +93,7 @@ function remRow(t, showSubj = true) {
   const late = isLate(t), dd = t.due ? daysTo(t.due) : null, [sn, sc] = remSubj(t);
   const cls = t.done ? ' done' : late ? ' late' : dd === 0 ? ' due-today' : dd === 1 ? ' due-soon' : '';
   return `<div class="task${cls}" data-task="${t.id}"><button class="tk-box" data-tick title="Done">${t.done ? '✓' : ''}</button>
-    <div class="tk-main"><b>${esc(t.text)}</b><span>${showSubj ? `<i style="--c:${esc(sc)}"></i>${esc(sn)}` : ''}${showSubj && t.due ? ' · ' : ''}${t.due ? `<em>${esc(dueLabel(t))}</em>` : ''}${t.note ? ' · 📝' : ''}${t.cal ? ' · 📅' : ''}</span>${t.note ? `<small class="tk-note">${esc(t.note)}</small>` : ''}</div></div>`;
+    <div class="tk-main"><b>${esc(t.text)}</b><span>${showSubj ? `<i style="--c:${esc(sc)}"></i>${esc(sn)}` : ''}${showSubj && t.due ? ' · ' : ''}${t.due ? `<em>${esc(dueLabel(t))}</em>` : ''}${t.note ? ' · 📝' : ''}${t.cal && !CS?.on ? ' · 📅' : ''}</span>${t.note ? `<small class="tk-note">${esc(t.note)}</small>` : ''}</div></div>`;
 }
 taskRow = remRow;
 taskForm = (t, folderId) => remForm(t, folderId);
@@ -110,7 +110,7 @@ function openReminders() {
       <div class="rem-row"><span class="rem-lbl">Subject</span><div class="rem-chips" data-subj></div></div>
     </div>
     <div class="rem-body" data-body></div>
-    <div class="rem-foot"><button class="btn small" data-paste>${icon('list')}Paste a list</button><button class="btn small" data-cal>${icon('calendar')}Add to Calendar</button><button class="btn small" data-planner>Planner</button></div>`, 'rem');
+    <div class="rem-foot"><button class="btn small" data-paste>${icon('list')}Paste a list</button><button class="btn small" data-cal></button><button class="btn small" data-planner>Planner</button></div>`, 'rem');
   REM = { m };
   const el = m.el, inp = $('[data-in]', el);
   const st = { auto: parseWhen(''), due: undefined, time: undefined, f: undefined, keep: false };
@@ -153,6 +153,7 @@ function openReminders() {
     if (flash) { const r = $(`[data-task="${flash}"]`, el); r?.classList.add('flash'); r?.scrollIntoView({ block: 'nearest' }); }
   };
   REM.redraw = drawList;
+  REM.drawCal = () => { const b = $('[data-cal]', el); if (b) b.innerHTML = `${icon('calendar')}${CS?.on ? (CS.err ? '⚠️ Calendar' : 'Calendar ✓') : 'Add to Calendar'}`; };
 
   const add = guard(async () => {
     const raw = inp.value.trim(); if (!raw) { inp.focus(); return toast('Type what you need to remember'); }
@@ -181,7 +182,7 @@ function openReminders() {
     if (q('[data-f]')) { st.f = q('[data-f]').dataset.f; drawAdd(); return; }
     if (q('[data-alert]')) { await toggleAlerts(); drawAlert(); return; }
     if (q('[data-paste]')) { if (await pasteListFlow()) { await loadPlan(); drawList(); remBadges(); remCheck(); } return; }
-    if (q('[data-cal]')) { await calendarAllFlow(); drawList(); return; }
+    if (q('[data-cal]')) { await calendarMenu(); REM?.drawCal(); drawList(); return; }
     if (q('[data-planner]')) { m.close(); if (inEditor()) await leaveNotebook(); LIB.view = 'planner'; LIB.folderId = null; showLibrary(); return; }
     const ex = q('[data-exam]'); if (ex) { await loadPlan(); const x = PLAN.exams.find(y => y.id === ex.dataset.exam); if (x && await examMenu(x)) { await loadPlan(); drawList(); } return; }
     const row = q('[data-task]'); if (!row) return;
@@ -196,7 +197,7 @@ function openReminders() {
   m.onClose = () => { REM = null; if (!$('#library').hidden) showLibrary(); };
   (async () => {
     if (!FOLDERS.length) FOLDERS = await db.all('folders');
-    await loadPlan(); drawAlert(); drawAdd(); drawList();
+    await loadPlan(); drawAlert(); drawAdd(); drawList(); REM.drawCal();
     if (matchMedia('(hover: hover)').matches) inp.focus();
   })();
 }
@@ -211,7 +212,7 @@ function remForm(t, folderId) {
       <div class="field"><label class="lbl">Subject</label>${subjSelect(v.folderId)}${!v.folderId && v.tag ? `<small class="hint">From your list: ${esc(v.tag)}</small>` : ''}</div>
       <div class="field two"><div><label class="lbl">Due date</label><input type="date" name="d" value="${esc(v.due || '')}"></div><div><label class="lbl">Time (optional)</label><input type="time" name="tm" value="${esc(v.time || '')}"></div></div>
       <div class="field"><label class="lbl">Note (optional)</label><textarea name="n" rows="2" placeholder="e.g. Slides 44–47 not included">${esc(v.note || '')}</textarea></div>
-      <div class="modal-actions">${t ? `<button class="btn danger-outline" data-del>Delete</button>` : ''}${t?.due ? `<button class="btn" data-cal>${icon('calendar')}Calendar</button>` : ''}<button class="btn" data-close>Cancel</button><button class="btn primary" data-ok>Save</button></div>`, 'small');
+      <div class="modal-actions">${t ? `<button class="btn danger-outline" data-del>Delete</button>` : ''}${t?.due && !CS?.on ? `<button class="btn" data-cal>${icon('calendar')}Calendar</button>` : ''}<button class="btn" data-close>Cancel</button><button class="btn primary" data-ok>Save</button></div>`, 'small');
     $$('input, textarea', m.el).forEach(i => i.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter' && i.tagName === 'INPUT') $('[data-ok]', m.el).click(); }));
     let out = false;
     const read = () => ({ text: $('[name=t]', m.el).value.trim(), folderId: $('[name=f]', m.el).value || null, due: $('[name=d]', m.el).value, time: $('[name=d]', m.el).value ? $('[name=tm]', m.el).value : '', note: $('[name=n]', m.el).value.trim() });
@@ -334,9 +335,10 @@ function remBadges() {
 
 // ---------- Calendar (.ics with an alert 1 day before) ----------
 const icsEsc = s => String(s).replace(/[\\;,]/g, c => '\\' + c).replace(/\r?\n/g, '\\n');
-function toIcs(items) {
-  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, ''), ymd = d => isoDay(d).replace(/-/g, '');
+function toIcs(items, o = {}) {
+  const stamp = o.stamp || new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, ''), ymd = d => isoDay(d).replace(/-/g, '');
   const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Inkbook//Reminders//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
+  if (o.name) L.push(`X-WR-CALNAME:${o.name}`, 'REFRESH-INTERVAL;VALUE=DURATION:PT15M', 'X-PUBLISHED-TTL:PT15M');
   for (const it of items) {
     L.push('BEGIN:VEVENT', `UID:${it.id}@inkbook`, `DTSTAMP:${stamp}`);
     if (it.time) {
@@ -374,13 +376,135 @@ async function calendarAllFlow() {
   ts.forEach(t => (t.cal = true)); xs.forEach(x => (x.cal = true)); await savePlan();
 }
 
+
+// =====================================================================
+// Calendar sync: Inkbook keeps a private calendar feed (a secret GitHub
+// Gist) up to date; the iPad Calendar subscribes to it once, so every
+// add / edit / tick / delete shows up in Calendar by itself.
+// =====================================================================
+const CS_KEY = 'inkbook.calsync';                       // kept out of backups on purpose (holds the key)
+let CS = (() => { try { return JSON.parse(localStorage.getItem(CS_KEY) || 'null'); } catch { return null; } })();
+const csSave = () => { try { CS ? localStorage.setItem(CS_KEY, JSON.stringify(CS)) : localStorage.removeItem(CS_KEY); } catch { } };
+const csFeed = () => CS?.gistId ? `https://gist.githubusercontent.com/${CS.user}/${CS.gistId}/raw/inkbook.ics` : '';
+const csHash = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return (h >>> 0).toString(36); };
+async function gh(path, token, opt = {}) {
+  const r = await fetch('https://api.github.com' + path, { ...opt, cache: 'no-store',
+    headers: { Accept: 'application/vnd.github+json', Authorization: 'Bearer ' + token, ...(opt.body ? { 'Content-Type': 'application/json' } : {}) } });
+  if (!r.ok) {
+    const e = new Error(r.status === 401 ? 'the GitHub key is wrong or has expired' : r.status === 404 ? 'not found: the key needs the “gist” permission' : r.status === 403 ? 'GitHub refused (the key needs the “gist” permission)' : 'GitHub error ' + r.status);
+    e.status = r.status; throw e;
+  }
+  return r.status === 204 ? null : r.json();
+}
+function feedIcs() {
+  const since = Date.now() - 30 * 864e5, subj = t => { const n = remSubj(t)[0]; return n === 'General' ? '' : n; };
+  const ts = PLAN.tasks.filter(t => !t.done && t.due && dueAt(t) > since)
+    .map(t => ({ id: t.id, title: t.text + (subj(t) ? ' · ' + subj(t) : ''), due: t.due, time: t.time, desc: [subj(t), t.note].filter(Boolean).join('\n') }));
+  const xs = PLAN.exams.filter(x => x.date && dueAt({ due: x.date, time: x.time }) > since)
+    .map(x => ({ id: 'ex' + x.id, title: '📚 ' + x.title, due: x.date, time: x.time, desc: [subjName(x.folderId), x.where].filter(Boolean).join('\n') }));
+  return toIcs([...ts, ...xs], { name: 'Inkbook', stamp: '20260101T000000Z' });
+}
+let csTimer = null, csBusy = false;
+function calSyncSoon(ms = 2500) {
+  if (!CS?.on) return;
+  CS.dirty = true; csSave(); clearTimeout(csTimer); csTimer = setTimeout(() => calSyncNow(), ms);
+}
+async function calSyncNow(force = false) {
+  if (!CS?.on || csBusy) return false;
+  if (!navigator.onLine) { CS.err = 'offline: will sync when you are back online'; csSave(); REM?.drawCal?.(); return false; }
+  csBusy = true;
+  try {
+    await loadPlan();
+    const ics = feedIcs(), h = csHash(ics);
+    if (force || h !== CS.hash) await gh(`/gists/${CS.gistId}`, CS.token, { method: 'PATCH', body: JSON.stringify({ files: { 'inkbook.ics': { content: ics } } }) });
+    Object.assign(CS, { hash: h, dirty: false, last: Date.now(), err: '' }); csSave(); return true;
+  } catch (e) {
+    CS.err = e.message; csSave();
+    if (e.status === 401 || e.status === 403 || e.status === 404) toast('📅 Calendar sync stopped: ' + e.message + '. Open Reminders → Calendar to fix it.', 6000);
+    return false;
+  } finally { csBusy = false; REM?.drawCal?.(); }
+}
+globalThis.onPlanSaved = () => calSyncSoon();
+const agoText = t => { if (!t) return 'never'; const m = Math.round((Date.now() - t) / 6e4); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : new Date(t).toLocaleDateString(); };
+
+async function calendarMenu() {
+  if (CS?.on) {
+    const v = await menu('Calendar sync is on', [
+      { head: CS.err ? '⚠️ ' + CS.err : 'Last updated ' + agoText(CS.last) },
+      { label: 'Update Calendar now', value: 'now', icon: 'convert', hint: 'Happens by itself after every change' },
+      { label: 'Subscribe again / copy the link', value: 'sub', icon: 'calendar', hint: 'If the Inkbook calendar is missing on this iPad' },
+      ...(CS.err ? [{ label: 'Paste a new GitHub key', value: 'key', icon: 'edit' }] : []),
+      { label: 'Turn off Calendar sync', value: 'off', icon: 'trash', danger: true }]);
+    if (v === 'now') { toast('Updating Calendar…', 1200); if (await calSyncNow(true)) toast('📅 Calendar feed updated. iPad picks it up on its next refresh.', 3500); }
+    if (v === 'sub') calSubscribeStep();
+    if (v === 'key') await calSetupFlow(true);
+    if (v === 'off' && await confirmBox('Stop syncing and delete the private calendar link? The Inkbook calendar on your iPad will empty. You can then remove it in Settings → Calendar → Accounts.', 'Turn off')) {
+      try { await gh(`/gists/${CS.gistId}`, CS.token, { method: 'DELETE' }); } catch { }
+      CS = null; csSave(); toast('Calendar sync is off');
+    }
+    return;
+  }
+  const v = await menu('Calendar', [
+    { label: 'Keep Calendar in sync', value: 'sync', icon: 'calendar', hint: 'Recommended: everything goes to Calendar and stays up to date when you edit it' },
+    { label: 'One-time export', value: 'once', icon: 'download', hint: 'Adds a copy now. Later edits won’t update it' }]);
+  if (v === 'sync') await calSetupFlow();
+  if (v === 'once') await calendarAllFlow();
+}
+function calSetupFlow(keyOnly = false) {
+  return new Promise(res => {
+    const m = openModal(`<h2>${keyOnly ? 'New GitHub key' : 'Keep Calendar in sync'}</h2>
+      ${keyOnly ? '' : `<p class="msg">Inkbook keeps a <b>private calendar link</b> up to date. Your iPad Calendar subscribes to it once. After that, every reminder and exam you add, change, tick off or delete here updates in Calendar by itself, with an alert <b>1 day before</b>.</p>
+      <p class="hint">The link lives in a secret Gist on your GitHub account. It isn't listed anywhere, but anyone who has the exact link could read your reminders, so don't share it.</p>`}
+      <h3 class="cs-step">Make a GitHub key</h3>
+      <ol class="cs-list"><li>Tap <b>Create key on GitHub</b> and sign in if asked.</li><li>Set <b>Expiration</b> to <b>No expiration</b>. Only <b>gist</b> should be ticked.</li><li>Tap <b>Generate token</b>, copy it (starts with <b>ghp_</b>), come back and paste it below.</li></ol>
+      <a class="btn" href="https://github.com/settings/tokens/new?scopes=gist&description=Inkbook%20calendar" target="_blank" rel="noopener">${icon('go')}Create key on GitHub</a>
+      <div class="field" style="margin-top:12px"><input type="password" data-key placeholder="Paste the key here (ghp_…)" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+      <p class="hint">The key stays on this iPad only (not in backups) and can only edit your Gists.</p>
+      <div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" data-ok>Connect</button></div>`, 'small');
+    const inp = $('[data-key]', m.el); inp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') $('[data-ok]', m.el).click(); });
+    let ok = false;
+    $('[data-ok]', m.el).onclick = guard(async () => {
+      const token = inp.value.trim(); if (!token) return toast('Paste the key first');
+      const b = $('[data-ok]', m.el); b.disabled = true; b.textContent = 'Connecting…';
+      try {
+        const user = await gh('/user', token);
+        await loadPlan();
+        if (keyOnly && CS?.gistId) {
+          await gh(`/gists/${CS.gistId}`, token);       // make sure the new key can reach the same calendar
+          Object.assign(CS, { token, user: user.login, err: '' }); csSave(); await calSyncNow(true);
+        } else {
+          const ics = feedIcs();
+          const g = await gh('/gists', token, { method: 'POST', body: JSON.stringify({ description: 'Inkbook calendar (made by the Inkbook app)', public: false, files: { 'inkbook.ics': { content: ics } } }) });
+          CS = { on: true, token, user: user.login, gistId: g.id, hash: csHash(ics), last: Date.now(), dirty: false, err: '' }; csSave();
+        }
+        ok = true; m.close();
+      } catch (e) { b.disabled = false; b.textContent = 'Connect'; toast('⚠️ Couldn’t connect: ' + e.message, 5000); }
+    });
+    m.onClose = () => { res(ok); if (ok && !keyOnly) calSubscribeStep(true); else if (ok) toast('📅 Calendar sync is working again'); };
+    inp.focus();
+  });
+}
+function calSubscribeStep(first = false) {
+  const feed = csFeed(), web = feed.replace(/^https:/, 'webcal:');
+  const m = openModal(`<h2>${first ? 'Connected ✓ · ' : ''}Subscribe in Calendar</h2>
+    <ol class="cs-list"><li>Tap <b>Subscribe in Calendar</b>, then <b>Subscribe</b>.</li>
+    <li>On the next screen turn <b>Remove Alerts</b> <b>off</b>, otherwise iPad drops the 1-day-before alerts. Then tap <b>Done</b>.</li>
+    <li>For faster updates: iPad <b>Settings → Calendar → Accounts → Fetch New Data</b> → <b>Every 15 Minutes</b>.</li></ol>
+    <p class="hint">You only do this once. Changes in Inkbook reach Calendar on the iPad's next refresh (usually within 15–60 minutes).</p>
+    <div class="modal-actions"><button class="btn" data-copy>Copy link</button><a class="btn primary" href="${esc(web)}">${icon('calendar')}Subscribe in Calendar</a></div>
+    <div class="modal-actions" style="margin-top:8px"><button class="btn" data-close>Done</button></div>`, 'small');
+  $('[data-copy]', m.el).onclick = async () => { try { await navigator.clipboard.writeText(feed); toast('Link copied. In Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar, paste it.', 6000); } catch { promptText('Calendar link', feed); } };
+}
+
 // ---------- boot ----------
 function bootReminders() {
   const mk = id => { const b = document.createElement('button'); b.className = 'icon-btn rem-bell'; b.id = id; b.title = 'Reminders'; b.innerHTML = icon('bell') + '<span class="rem-badge"></span>'; b.onclick = () => openReminders(); return b; };
   $('#newBtn')?.before(mk('remLibBtn'));
   $('#bookmarkBtn')?.before(mk('remEdBtn'));
   remCheck(); setInterval(remCheck, 5 * 60e3);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) remCheck(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { remCheck(); if (CS?.on && CS.dirty) calSyncNow(); } });
+  addEventListener('online', () => { if (CS?.on && CS.dirty) calSyncNow(); });
+  if (CS?.on && CS.dirty) setTimeout(calSyncNow, 3000);
   navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.openReminders && !REM?.m.el.isConnected) openReminders(); });
   if (new URLSearchParams(location.search).has('reminders')) setTimeout(() => !REM?.m.el.isConnected && openReminders(), 600);
 }

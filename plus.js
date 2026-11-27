@@ -427,14 +427,56 @@ async function selMoreMenu() {
 let REC = null, PLAY = null;
 function stampRec(o) { if (REC && E.nb && REC.nbId === E.nb.id) { o.ra = REC.id; o.rt = +((Date.now() - REC.t0) / 1000).toFixed(2); } }
 const fmtDur = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+// Lecture mode: the microphone goes through a small sound chain before it is saved.
+//  · The audio is held back 0.15 s, so when the Pencil touches the glass we already know and can turn the
+//    volume down for that split second before the "tock" reaches the recording.
+//  · A high-pass filter removes the low thump that travels through the iPad's body and the table.
+//  · A leveler + boost lifts a lecturer standing a few metres away; a limiter catches anything loud.
+// iPad's own call-style voice processing is switched off: it is tuned for a voice right at the mic and
+// treats a distant speaker as noise.
+const LOOK = 0.15;
+async function lectureChain(mic) {
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
+  const ac = new AC(); await ac.resume().catch(() => { });
+  const node = (fn, set) => { const n = fn(); for (const [k, v] of Object.entries(set)) n[k].value !== undefined ? (n[k].value = v) : (n[k] = v); return n; };
+  const src = ac.createMediaStreamSource(mic);
+  const hp = node(() => ac.createBiquadFilter(), { type: 'highpass', frequency: 120, Q: 0.7 });
+  const lp = node(() => ac.createBiquadFilter(), { type: 'lowpass', frequency: 7500, Q: 0.7 });
+  const delay = ac.createDelay(1); delay.delayTime.value = LOOK;
+  const duck = ac.createGain();
+  const level = node(() => ac.createDynamicsCompressor(), { threshold: -42, knee: 12, ratio: 5, attack: 0.004, release: 0.3 });
+  const boost = ac.createGain(); boost.gain.value = 3.2;
+  const limit = node(() => ac.createDynamicsCompressor(), { threshold: -4, knee: 0, ratio: 20, attack: 0.001, release: 0.08 });
+  const dest = ac.createMediaStreamDestination();
+  src.connect(hp); hp.connect(lp); lp.connect(delay); delay.connect(duck); duck.connect(level); level.connect(boost); boost.connect(limit); limit.connect(dest);
+  const ctxTime = evT => {           // page time (event.timeStamp, ms) → audio clock (s)
+    const o = ac.getOutputTimestamp?.();
+    return o?.performanceTime ? o.contextTime + (evT - o.performanceTime) / 1000 : ac.currentTime + (evT - performance.now()) / 1000;
+  };
+  return {
+    ac, stream: dest.stream,
+    tap(evT) {                       // the Pencil just touched the glass: dip that moment (−20 dB for ~90 ms)
+      const g = duck.gain, t = Math.max(ac.currentTime + 0.002, ctxTime(evT) + LOOK - 0.025);
+      g.cancelScheduledValues(t); g.setValueAtTime(1, t); g.linearRampToValueAtTime(0.1, t + 0.004);
+      g.setValueAtTime(0.1, t + 0.085); g.linearRampToValueAtTime(1, t + 0.11);
+    },
+    stop() { try { src.disconnect(); } catch { } ac.close().catch(() => { }); },
+  };
+}
+document.addEventListener('pointerdown', e => { if (e.pointerType === 'pen' && REC?.chain) REC.chain.tap(e.timeStamp); }, true);
+document.addEventListener('change', e => { if (e.target.matches?.('[data-recclean]')) { S.recClean = e.target.checked; saveSettings(); } });
+if (S.recClean === undefined) S.recClean = true;
 async function startRecording() {
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast('Recording is not supported in this browser');
-  let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+  const clean = S.recClean !== false;
+  let mic, chain = null;
+  try { mic = await navigator.mediaDevices.getUserMedia({ audio: clean ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : { echoCancellation: true, noiseSuppression: true } }); }
   catch { return toast('Inkbook needs microphone access. Allow it in iPad Settings → Safari → Microphone.', 5000); }
+  if (clean) { try { chain = await lectureChain(mic); } catch (e) { console.warn(e); chain = null; } }
+  const stream = chain?.stream || mic;
   const type = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find(t => MediaRecorder.isTypeSupported?.(t)) || '';
-  const rec = new MediaRecorder(stream, type ? { mimeType: type } : {});
-  REC = { id: uid(), nbId: E.nb.id, t0: Date.now(), rec, stream, chunks: [], type: rec.mimeType || type || 'audio/mp4' };
+  const rec = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 96000 } : { audioBitsPerSecond: 96000 });
+  REC = { id: uid(), nbId: E.nb.id, t0: Date.now(), rec, stream, mic, chain, chunks: [], type: rec.mimeType || type || 'audio/mp4' };
   const R = REC;
   rec.ondataavailable = e => { if (e.data?.size) R.chunks.push(e.data); };
   rec.start(1000);
@@ -446,7 +488,7 @@ function stopRecording() {
   REC = null; clearInterval(r.timer); updateRecBtn();
   return new Promise(res => {
     r.rec.onstop = async () => {
-      r.stream.getTracks().forEach(t => t.stop());
+      r.stream.getTracks().forEach(t => t.stop()); r.mic?.getTracks().forEach(t => t.stop()); r.chain?.stop();
       const blob = new Blob(r.chunks, { type: r.type }), dur = (Date.now() - r.t0) / 1000;
       if (blob.size < 500) { toast('The recording was empty'); return res(); }
       const key = 'aud_' + r.id; await db.put('blobs', blob, key);
@@ -470,7 +512,7 @@ function updateRecBtn() {
 const countLinked = id => E.pages.reduce((n, p) => n + p.strokes.filter(s => s.ra === id).length, 0);
 async function recordingsFlow() {
   const list = [...(E.nb.recordings || [])].reverse();
-  const m = openModal(`<h2>Recordings</h2>${list.length ? `<div class="rows">${list.map(r => `<div class="row rec-row" data-r="${r.id}"><button class="icon-btn rec-play" data-play title="Play">${icon('play')}</button>
+  const m = openModal(`<h2>Recordings</h2><label class="toggle"><input type="checkbox" data-recclean ${S.recClean !== false ? 'checked' : ''}><span><b>Lecture mode</b>: remove Pencil taps and lift a far-away voice (for new recordings)</span></label>${list.length ? `<div class="rows">${list.map(r => `<div class="row rec-row" data-r="${r.id}"><button class="icon-btn rec-play" data-play title="Play">${icon('play')}</button>
       <div class="row-main"><b>${esc(r.title)}</b><span>${fmtDur(r.dur)} · ${countLinked(r.id)} strokes linked</span></div><button class="icon-btn" data-rm title="More">${icon('more')}</button></div>`).join('')}</div>`
     : `<div class="empty">No recordings yet. Tap the microphone button in the toolbar during a lecture. Everything you write is linked to the audio, so later you can tap your notes to hear that moment.</div>`}
     <div class="modal-actions"><button class="btn" data-close>Close</button></div>`, '');
@@ -615,7 +657,7 @@ function wireRefPane(pane) {
 // =====================================================================
 let PLAN = { exams: [], tasks: [] };
 const loadPlan = async () => (PLAN = await metaGet('planner', { exams: [], tasks: [] }));
-const savePlan = () => metaPut('planner', PLAN);
+const savePlan = async () => { await metaPut('planner', PLAN); globalThis.onPlanSaved?.(); };
 const today0 = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
 const isoDay = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const parseDay = s => { const [y, m, d] = (s || '').split('-').map(Number); return y ? new Date(y, m - 1, d) : null; };

@@ -360,7 +360,7 @@ const HELP = [
     <li><b>Paste a list</b>: copy your homework list from Notes and paste it. Lines ending in “:” become the subject.</li>
     <li>Tap the box to tick it off; tap the reminder to change it, add a note, or delete it.</li>
     <li><b>Alerts</b>: tap <b>Alerts off</b> to allow notifications. You'll be reminded 1 day before (while Inkbook is open, or as soon as you open it). The red number on the bell and app icon shows what's due by tomorrow.</li>
-    <li><b>Add to Calendar</b> puts your reminders in the iPad Calendar with an alert 1 day before, which arrives even when Inkbook is closed.</li></ul>
+    <li><b>Calendar</b> (bottom of Reminders) → <b>Keep Calendar in sync</b>: one-time setup, then every reminder and exam goes to the iPad Calendar by itself, and edits, ticks and deletes update there too, with an alert 1 day before that arrives even when Inkbook is closed. Updates reach Calendar on the iPad's next refresh (usually 15–60 min).</li></ul>
     <p class="hint">Reminders also appear in Library → Planner, together with your exams.</p>`],
   ['Presets & gestures', `
     <ul><li><b>Pen presets</b>: the bar on the left edge. Tap one to switch pen, color and size at once. Set up a pen, then tap <b>+</b> to save it. Hold a preset to move, replace or remove it. ‹ hides the bar.</li>
@@ -381,6 +381,7 @@ const HELP = [
     <ul><li>Tap the <b>microphone</b> in the toolbar to record a lecture; tap again to stop. Everything you write while recording is linked to that moment.</li>
     <li>⋯ → <b>Recordings</b> (or hold the microphone): play, rename, share or delete.</li>
     <li>While playing, ink written later is faded, so you can watch your notes appear. <b>Tap any ink</b> to jump the audio to when you wrote it. <b>Follow</b> scrolls along with the notes.</li></ul>
+    <p class="hint"><b>Lecture mode</b> (on by default, in ⋯ → Recordings) removes the tap of the Pencil on the glass and lifts a voice from across the room.</p>
     <p class="hint">The first time, iPad asks for microphone permission. Recording stops if you leave the notebook or close the app.</p>`],
   ['Split view', `
     <p>⋯ → <b>Split view</b> shows another notebook (or another part of this one) beside your notes, e.g. lecture slides next to your writing. Scroll and pinch it separately, drag its left edge to resize, and tap its title to switch notebook. On a narrow screen it opens at the bottom.</p>`],

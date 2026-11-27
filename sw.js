@@ -1,5 +1,5 @@
 /* Offline support: caches the app + libraries so it works with no internet. */
-const VERSION = 'inkbook-v14';
+const VERSION = 'inkbook-v15';
 const CORE = ['./', './index.html', './styles.css', './app.js', './features.js', './extras.js', './organize.js', './typeset.js', './tables.js', './plus.js', './reminders.js', './io.js', './manifest.json',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 const LIBS = [
@@ -32,6 +32,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
+  const host = new URL(req.url).hostname;
+  if (host === 'api.github.com' || host.endsWith('githubusercontent.com')) return;   // live data: never cache (calendar sync)
   e.respondWith((async () => {
     const cache = await caches.open(VERSION);
     const hit = await cache.match(req, { ignoreSearch: true }) ||

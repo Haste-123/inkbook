@@ -15,7 +15,7 @@ const fmtDate = t => new Date(t).toLocaleDateString(undefined, { month: 'short',
 const safeName = s => (s || 'notes').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'notes';
 const nextFrame = () => new Promise(r => setTimeout(r));
 
-const APP_VERSION = '14';
+const APP_VERSION = '15';
 const PAGE_W = 1000, A4_H = 1414, ZMIN = 0.25, ZMAX = 4, MAX_PX = 12e6;
 // Keep the installed app up to date: check for a new version whenever the app comes back to the
 // front, and switch to it automatically (or offer a one-tap update while a notebook is open).
@@ -243,7 +243,19 @@ function drawStroke(ctx, st, s, dark) {
     ctx.stroke();
   } else if (n === 1) {
     ctx.beginPath(); ctx.arc(q[0] * s, q[1] * s, Math.max(0.5, widthAt(st, q[2]) * s / 2), 0, Math.PI * 2); ctx.fill();
-  } else for (let i = 1; i < n; i++) penSeg(ctx, st, s, i, n);   // measured: faster than joining pieces into one path
+  } else {
+    // Consecutive pieces whose width rounds to the same value (1/8 px steps, 1/4 px when thick) share one path:
+    // real Pencil pressure changes smoothly, so this cuts the stroke() calls a lot with no visible change.
+    let cur = -1;
+    for (let i = 1; i < n; i++) {
+      const j = i * 3, lw = Math.max(0.6, widthAt(st, q[j + 2]) * s), qw = lw < 4 ? Math.round(lw * 8) / 8 : Math.round(lw * 4) / 4;
+      const sx = i === 1 ? q[0] : (q[j - 3] + q[j]) / 2, sy = i === 1 ? q[1] : (q[j - 2] + q[j + 1]) / 2;
+      const last = i === n - 1, ex = last ? q[j] : (q[j] + q[j + 3]) / 2, ey = last ? q[j + 1] : (q[j + 1] + q[j + 4]) / 2;
+      if (qw !== cur) { if (cur > 0) ctx.stroke(); ctx.lineWidth = qw; ctx.beginPath(); ctx.moveTo(sx * s, sy * s); cur = qw; }
+      ctx.quadraticCurveTo(q[j] * s, q[j + 1] * s, ex * s, ey * s);
+    }
+    if (cur > 0) ctx.stroke();
+  }
   ctx.restore();
 }
 const LINED = { lined: [40, 130], narrow: [30, 120], wide: [52, 140] };
@@ -781,11 +793,11 @@ function buildPages() {
 function onIntersect(entries) {
   for (const en of entries) {
     const p = E.byId.get(en.target.dataset.id); if (!p) continue;
-    if (en.isIntersecting) { E.visible.add(p.id); paint(p); }
+    if (en.isIntersecting) { E.visible.add(p.id); schedulePaint(p); }
     else { E.visible.delete(p.id); const c = en.target.querySelector('canvas.ink'); c.width = c.height = 0; }
   }
 }
-function layout(again = true) {
+function layout(again = true, ratio = 0) {
   const cw = scroller.clientWidth, base = Math.min(cw - 40, 980) * E.zoom;
   E.unit = base / PAGE_W;
   E.pages.forEach((p, i) => {
@@ -795,8 +807,16 @@ function layout(again = true) {
     el.querySelector('.page-num').textContent = i + 1;
   });
   $$('.sec-divider', pagesEl).forEach(d => (d.style.width = base + 'px'));
-  if (again && scroller.clientWidth !== cw) return layout(false);
-  for (const id of E.visible) paint(E.byId.get(id));
+  if (again && scroller.clientWidth !== cw) return layout(false, ratio);
+  if (ratio) {
+    // Zoom: keep showing the current (slightly blurry) picture at the new size, then sharpen it page by
+    // page over the next frames, nearest page first, so the app never freezes after a pinch.
+    for (const id of E.visible) {
+      const el = E.els.get(id), c = el?.querySelector('canvas.ink'), g = el?._reg; if (!g) continue;
+      c.style.left = g.x0 * ratio + 'px'; c.style.top = g.y0 * ratio + 'px'; c.style.width = (g.x1 - g.x0) * ratio + 'px'; c.style.height = (g.y1 - g.y0) * ratio + 'px';
+      el._reg = null; schedulePaint(E.byId.get(id));
+    }
+  } else for (const id of E.visible) paint(E.byId.get(id));
   if (E.sel) { showSelMenu(); scheduleLive(); }
 }
 // Each page's canvas covers only the part of the page that is on screen (plus a margin), at the full
@@ -840,8 +860,17 @@ function checkRegions() {
 function setPageTransform(ctx, el) { const s = el._scale || 1; ctx.setTransform(1, 0, 0, 1, -(el._ox || 0) * s, -(el._oy || 0) * s); }
 const paintQ = new Set(); let paintRaf = 0;
 function schedulePaint(p) {
+  if (!p) return;
   paintQ.add(p);
-  if (!paintRaf) paintRaf = requestAnimationFrame(() => { paintRaf = 0; const l = [...paintQ]; paintQ.clear(); l.forEach(paint); });
+  if (!paintRaf) paintRaf = requestAnimationFrame(runPaintQ);
+}
+function runPaintQ() {
+  paintRaf = 0; if (pinch?.live) { paintRaf = requestAnimationFrame(runPaintQ); return; }   // wait until the fingers lift
+  const sr = scroller.getBoundingClientRect(), mid = sr.top + sr.height / 2;
+  const dist = p => { const r = E.els.get(p.id)?.getBoundingClientRect(); return r ? (mid < r.top ? r.top - mid : mid > r.bottom ? mid - r.bottom : 0) : 1e9; };
+  const l = [...paintQ].sort((a, b) => dist(a) - dist(b)), t0 = performance.now();
+  for (const p of l) { if (performance.now() - t0 > 10 && paintQ.size < l.length) break; paintQ.delete(p); paint(p); }
+  if (paintQ.size) paintRaf = requestAnimationFrame(runPaintQ);
 }
 function refreshPage(p) { const el = E.els.get(p.id); if (!el) return; renderTexts(p, el); if (E.visible.has(p.id)) paint(p); }
 function currentIndex() {
@@ -897,7 +926,7 @@ function restoreAnchor(a, cx, cy) {
 function zoomAt(z, cx, cy) {
   z = clamp(z, ZMIN, ZMAX); if (Math.abs(z / E.zoom - 1) < 0.001) return;
   const a = anchorAt(cx, cy);
-  E.zoom = z; layout(); updateZoomLabel(); restoreAnchor(a, cx, cy);
+  const ratio = z / E.zoom; E.zoom = z; layout(true, ratio); updateZoomLabel(); restoreAnchor(a, cx, cy);
 }
 function zoomCenter(z) { const r = scroller.getBoundingClientRect(); zoomAt(z, r.left + r.width / 2, r.top + r.height / 2); }
 
@@ -1731,7 +1760,7 @@ function pinchMove(a, b, manualPan) {
   if (!pinch) {
     const r = pagesEl.getBoundingClientRect();
     pinch = { d0: d, sx: mx, sy: my, lx: mx, ly: my, ox: mx - r.left, oy: my - r.top, ratio: 1, live: false, ida: a.identifier, idb: b.identifier };
-    pagesEl.style.transformOrigin = `${pinch.ox}px ${pinch.oy}px`; return;
+    pagesEl.style.transformOrigin = `${pinch.ox}px ${pinch.oy}px`; pagesEl.classList.add('pinching'); return;
   }
   // small wobbles (like fingers resting) don't zoom or scroll: the gesture has to really move first
   if (!pinch.live) {
@@ -1743,10 +1772,10 @@ function pinchMove(a, b, manualPan) {
   pinch.ratio = clamp(E.zoom * d / pinch.d0, ZMIN, ZMAX) / E.zoom;
   pagesEl.style.transform = `scale(${pinch.ratio})`;
 }
-function cancelPinch() { pinch = null; pagesEl.style.transform = ''; }
+function cancelPinch() { pinch = null; pagesEl.style.transform = ''; pagesEl.classList.remove('pinching'); }
 function endPinch() {
   const p = pinch; pinch = null; const r = p.ratio;
-  pagesEl.style.transform = '';
+  pagesEl.style.transform = ''; pagesEl.classList.remove('pinching');
   if (!p.live || Math.abs(r - 1) < 0.01) return;
   if (tapG) tapG.moved = true;
   // The point that stayed still during the pinch preview is the transform origin, so keep exactly that
@@ -1754,8 +1783,8 @@ function endPinch() {
   // zoom-out and jump to the last page.)
   const pr = pagesEl.getBoundingClientRect(), sx = pr.left + p.ox, sy = pr.top + p.oy;
   const a = anchorAt(sx, sy);
-  E.zoom = clamp(E.zoom * r, ZMIN, ZMAX); layout(); updateZoomLabel();
-  restoreAnchor(a, sx, sy);
+  const z = clamp(E.zoom * r, ZMIN, ZMAX), ratio = z / E.zoom; E.zoom = z; layout(true, ratio); updateZoomLabel();
+  restoreAnchor(a, sx, sy); updateInd(); placeFloats();
 }
 
 // ---------- Page resizing (drag edges like Paint) ----------
@@ -2162,7 +2191,7 @@ async function boot() {
   scroller.addEventListener('touchcancel', onTouchEnd);
   scroller.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); zoomAt(E.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY); } }, { passive: false });
   let indQ = false;
-  scroller.addEventListener('scroll', () => { if (!indQ) { indQ = true; requestAnimationFrame(() => { indQ = false; updateInd(); placeFloats(); if (!pinch) checkRegions(); }); } }, { passive: true });
+  scroller.addEventListener('scroll', () => { if (!indQ) { indQ = true; requestAnimationFrame(() => { indQ = false; if (pinch?.live) return; updateInd(); placeFloats(); checkRegions(); }); } }, { passive: true });
   addEventListener('resize', () => requestAnimationFrame(placeFloats));
   ['gesturestart', 'gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault()));
   let rT, lastW = 0;

@@ -970,3 +970,12 @@ input[type=date], input[type=time] { width: 100%; box-sizing: border-box; }
 .paste-prev { max-height: 38dvh; overflow: auto; margin-top: 10px; }
 .paste-prev .task input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--accent); }
 .modal textarea[data-txt] { width: 100%; font-size: 15px; resize: vertical; }
+
+/* v15 calendar sync */
+.cs-step { font-size: 15px; margin: 16px 0 6px; }
+.cs-list { padding-left: 20px; margin: 4px 0 10px; line-height: 1.55; font-size: 14.5px; }
+.modal a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+
+/* v15: pinch zoom runs on the GPU */
+#pages.pinching { will-change: transform; }
+#pages.pinching .text-layer, #pages.pinching .float-menu { pointer-events: none; }
