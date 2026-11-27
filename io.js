@@ -354,6 +354,14 @@ const HELP = [
     <p class="hint">Word documents are converted by laying out their text and images; complex layouts may shift slightly. PDF → Word puts each page into Word as a picture.</p>`],
   ['Backup & offline', `
     <p>Everything works offline and stays <b>on this iPad only</b>. Settings → <b>Back up everything</b> makes one file. Save it to iCloud Drive now and then. Restore it any time, or on a new iPad.</p>`],
+  ['Reminders', `
+    <ul><li>Tap the <b>bell</b> (top right, in the library and in every notebook) to open Reminders from anywhere.</li>
+    <li>Just type, e.g. <i>Lab report due fri 5pm</i> or <i>Quiz 27th</i>: the date and time are picked up for you, and the subject too if you mention it. Or tap Today, Tomorrow, a weekday, or pick a date.</li>
+    <li><b>Paste a list</b>: copy your homework list from Notes and paste it. Lines ending in “:” become the subject.</li>
+    <li>Tap the box to tick it off; tap the reminder to change it, add a note, or delete it.</li>
+    <li><b>Alerts</b>: tap <b>Alerts off</b> to allow notifications. You'll be reminded 1 day before (while Inkbook is open, or as soon as you open it). The red number on the bell and app icon shows what's due by tomorrow.</li>
+    <li><b>Add to Calendar</b> puts your reminders in the iPad Calendar with an alert 1 day before, which arrives even when Inkbook is closed.</li></ul>
+    <p class="hint">Reminders also appear in Library → Planner, together with your exams.</p>`],
   ['Presets & gestures', `
     <ul><li><b>Pen presets</b>: the bar on the left edge. Tap one to switch pen, color and size at once. Set up a pen, then tap <b>+</b> to save it. Hold a preset to move, replace or remove it. ‹ hides the bar.</li>
     <li><b>Tool wheel</b>: press and hold one finger on the page (Pencil-only mode). Pick a tool, undo/redo, a preset, or <b>Last</b> to go back to the previous tool.</li>
@@ -392,7 +400,7 @@ function openHelp(topic = 0) {
 
 // ---------- Start ----------
 boot().then(() => {
-  bootFind(); bootOrganize(); bootPlus();
+  bootFind(); bootOrganize(); bootPlus(); bootReminders();
   $('#helpSide')?.addEventListener('click', () => openHelp());
   document.addEventListener('keydown', e => { if (e.key === '?' && !e.target.closest?.('[contenteditable], input, textarea')) openHelp(); });
   if (!localStorage.getItem('inkbook.seenHelp2')) { try { localStorage.setItem('inkbook.seenHelp2', '1'); } catch { } toast('New: folders, lessons, images, shapes, saved questions, import & convert. Tap Help in the sidebar for a tour.', 6000); }

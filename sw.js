@@ -1,6 +1,6 @@
 /* Offline support: caches the app + libraries so it works with no internet. */
-const VERSION = 'inkbook-v13';
-const CORE = ['./', './index.html', './styles.css', './app.js', './features.js', './extras.js', './organize.js', './typeset.js', './tables.js', './plus.js', './io.js', './manifest.json',
+const VERSION = 'inkbook-v14';
+const CORE = ['./', './index.html', './styles.css', './app.js', './features.js', './extras.js', './organize.js', './typeset.js', './tables.js', './plus.js', './reminders.js', './io.js', './manifest.json',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 const LIBS = [
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
@@ -42,5 +42,15 @@ self.addEventListener('fetch', e => {
     }).catch(() => null);
     if (hit) { e.waitUntil(net); return hit; }       // instant + offline, update in background
     return (await net) || new Response('Offline', { status: 503 });
+  })());
+});
+
+// Tapping a reminder notification opens Inkbook on the Reminders panel
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil((async () => {
+    const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of all) { c.postMessage({ openReminders: true }); if ('focus' in c) return c.focus(); }
+    return self.clients.openWindow('./?reminders=1');
   })());
 });

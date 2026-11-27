@@ -124,7 +124,7 @@ function pickWheel(b) {
 function bootGestures() {
   scroller.addEventListener('pointerdown', e => {
     if (!E.nb || !S.wheel || e.pointerType !== 'touch' || !S.pencilOnly) return;
-    if (e.target.closest('.text-item, .tbl, .float-menu, .grow, .page-tabs, .hit') || !e.target.closest('.page')) return;
+    if (e.target.closest('.text-item, .tbl, .float-menu, .grow, .page-tabs, .hit, .plink-go') || !e.target.closest('.page')) return;
     clearTimeout(lp?.t);
     if (lp && lp.id !== e.pointerId) { lp = null; return; }            // a second finger: that's a pinch
     lp = { id: e.pointerId, x: e.clientX, y: e.clientY, t: setTimeout(() => {
@@ -139,7 +139,7 @@ function bootGestures() {
     if (lp && e.pointerId === lp.id) { clearTimeout(lp.t); lp = null; }
     // finger double-tap on the page swaps back to the previous tool
     if (e.type !== 'pointerup' || e.pointerType !== 'touch' || !S.pencilOnly || !S.dblSwap || wheelEl) return;
-    if (!e.target.closest?.('.page') || e.target.closest('.text-item, .tbl, .hit, .page-tabs')) return;
+    if (!e.target.closest?.('.page') || e.target.closest('.text-item, .tbl, .hit, .plink-go, .page-tabs')) return;
     const now = Date.now();
     if (lastTap && now - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40 && !E.sel) {
       lastTap = null; const t = prevTool && prevTool !== E.tool ? prevTool : (E.tool === 'pen' ? 'eraser' : 'pen'); setTool(t); toast('⇄ ' + TOOL_NAMES[t], 800);
@@ -328,7 +328,7 @@ function renderLinks(p, el) {
   for (const l of p.links || []) {
     const d = document.createElement('div'); d.className = 'plink'; d.dataset.id = l.id;
     d.style.cssText = `--x:${l.x};--y:${l.y};--w:${l.w};--h:${l.h}`;
-    d.innerHTML = `<button class="plink-go hit" title="Tap to open · hold for options">${icon('link')}<span>${esc(l.label || 'Link')}</span></button>`;
+    d.innerHTML = `<button class="plink-go" title="Tap to open · hold for options">${icon('link')}<span>${esc(l.label || 'Link')}</span></button>`;
     const b = $('button', d); let t0 = 0, lpT = null, sx = 0, sy = 0;
     b.addEventListener('pointerdown', e => { e.stopPropagation(); t0 = Date.now(); sx = e.clientX; sy = e.clientY; clearTimeout(lpT); lpT = setTimeout(() => { lpT = null; t0 = 0; linkMenu(p, l); }, 550); });
     b.addEventListener('pointerup', e => { e.stopPropagation(); if (lpT) { clearTimeout(lpT); lpT = null; } if (t0 && Date.now() - t0 < 550 && Math.hypot(e.clientX - sx, e.clientY - sy) < 12) { t0 = 0; guard(followLink)(l); } });

@@ -346,7 +346,7 @@ function moreRoot(box) {
       ${tile('dup', 'copy', 'Duplicate')}${tile('png', 'export', 'Save image')}${tile('selall', 'selall', 'Select all')}${tile('del', 'trash', 'Delete', 'danger')}</div>
     <div class="tile-sec">Notebook</div><div class="tiles">${tile('sec', 'layers', 'Lesson / topic')}${tile('saved', 'star', 'Saved items')}${tile('cover', 'palette', 'Cover')}${tile('rename', 'edit', 'Rename')}
       ${tile('pdf', 'export', 'Export PDF')}${tile('docx', 'file', 'Export Word')}</div>
-    <div class="tile-sec">Study tools</div><div class="tiles">${tile('find', 'search', 'Find')}${tile('ask', 'sparkle', 'Ask Claude', 'claude')}${tile('calc', 'calc', 'Calculator')}${tile('recs', 'mic', 'Recordings')}${tile('split', 'split', REF.nb ? 'Close split' : 'Split view', REF.nb ? 'on' : '')}${tile('laser', 'laser', 'Laser')}${tile('help', 'help', 'Help')}</div>`;
+    <div class="tile-sec">Study tools</div><div class="tiles">${tile('find', 'search', 'Find')}${tile('ask', 'sparkle', 'Ask Claude', 'claude')}${tile('calc', 'calc', 'Calculator')}${tile('rem', 'bell', 'Reminders')}${tile('recs', 'mic', 'Recordings')}${tile('split', 'split', REF.nb ? 'Close split' : 'Split view', REF.nb ? 'on' : '')}${tile('laser', 'laser', 'Laser')}${tile('help', 'help', 'Help')}</div>`;
   box.onclick = guard(async e => { const t = e.target.closest('[data-m]'); if (t) await moreAction(t.dataset.m, box); });
 }
 function rePlace() { placePopover($('#moreBtn')); }
@@ -368,7 +368,7 @@ async function moreAction(k, box) {
     pdf: async () => { await flush(); await exportPDF(E.nb, E.pages); }, docx: async () => { await flush(); await exportDocx(E.nb, E.pages); },
     ask: () => { const r = visibleBox(p); return askClaude(p, r); },
     find: () => openFind(),
-    table: () => insertTableFlow(), stk: () => stickersFlow(), lay: () => layoutsFlow(), recs: () => recordingsFlow(),
+    table: () => insertTableFlow(), stk: () => stickersFlow(), lay: () => layoutsFlow(), recs: () => recordingsFlow(), rem: () => openReminders(),
     split: () => REF.nb ? closeSplit() : openSplit(),
     laser: () => { setTool('laser'); toast('Laser pointer on: tap the pen to go back', 2200); }, help: () => openHelp(),
   }[k];
