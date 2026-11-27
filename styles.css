@@ -1364,3 +1364,9 @@ body.reading .page { touch-action: pan-x pan-y; }
 .seg.ys .chip:disabled { opacity: .35; cursor: not-allowed; }
 .graph-note { display: block; margin-top: 8px; }
 .graph-note[hidden] { display: none; }
+
+/* v36: a task's details stay on one line; a long subject name shortens with … so the date always shows */
+.tk-main { min-width: 0; flex: 1; }
+.tk-main .tk-meta { display: flex; align-items: center; gap: 5px; flex-wrap: nowrap; min-width: 0; white-space: nowrap; }
+.tk-meta .tk-subj { min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.tk-meta .tk-dot, .tk-meta em, .tk-meta i, .tk-meta .tk-ni { flex-shrink: 0; }

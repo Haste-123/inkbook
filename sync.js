@@ -242,6 +242,7 @@ async function syncNow({ full = false, progress = null } = {}) {
 async function afterRemoteChanges(changed) {
   if ([...changed].some(c => c.startsWith('pages|'))) globalThis.resetSearchIndex?.();   // pages arrived from the other device
   FOLDERS = await db.all('folders');
+  if (REF?.nb && changed.has('notebooks|' + REF.nb.id) && !(await db.get('notebooks', REF.nb.id))) closeSplit();   // the notebook beside yours was deleted on the other device
   if (changed.has('blobs|meta:planner')) { await loadPlan(); remBadges?.(); globalThis.calSyncSoon?.(1500); REM?.redraw?.(); }
   if (E.nb) {
     const nbId = E.nb.id, touched = changed.has('notebooks|' + nbId) || [...changed].some(c => c.startsWith('pages|') && E.byId.has(c.slice(6)));

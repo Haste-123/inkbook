@@ -112,7 +112,11 @@ function bootPhone() {
   openNotebook = async function (...a) { const r = await _open(...a); setReading(isPhone()); return r; };
   const _leave = leaveNotebook;
   leaveNotebook = async function (...a) { setReading(false); return _leave(...a); };
-  matchMedia('(max-width: 640px)').addEventListener('change', () => { applyPhone(); if (isPhone() && !$('#library').hidden && LIB.view === 'home') { LIB.view = 'today'; showLibrary(); } });
+  matchMedia('(max-width: 640px)').addEventListener('change', () => {
+    applyPhone();
+    if (isPhone() && !$('#library').hidden && LIB.view === 'home') { LIB.view = 'today'; showLibrary(); }
+    else if (!isPhone() && LIB.view === 'today') { LIB.view = 'home'; if (!$('#library').hidden) showLibrary(); }   // Today is the phone's screen; the iPad starts at Home
+  });
   applyPhone();
   if (isPhone() && LIB.view === 'home' && !E.nb) { LIB.view = 'today'; showLibrary(); }
 }

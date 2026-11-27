@@ -64,7 +64,7 @@ function parseWhen(raw = '') {
   scan(/\bin\s+(\d{1,2}|an?|one|two|three|four|five)\s+(days?|weeks?)\b/gi, 2, m => dayPlus((NUMW[m[1].toLowerCase()] || +m[1]) * (/w/i.test(m[2]) ? 7 : 1)));
   scan(/\bnext\s+week\b/gi, 2, () => dayPlus(7));
   let wk = null, wd = null;
-  scan(/\b(?:week|wk)\s*(\d{1,2})\b|\bw(\d{1,2})\b/gi, 1, m => { if (typeof sem !== 'function' || !sem() || wk != null) return false; wk = +(m[1] || m[2]); return weekStartOf(wk); });
+  scan(/\b(?:week|wk)\s*(\d{1,2})\b|\bw(\d{1,2})\b/gi, 1, m => { if (typeof sem !== 'function' || !sem() || wk != null) return false; const n = +(m[1] || m[2]); if (n < 1 || n > (sem().weeks || 16) + 4) return false; wk = n; return weekStartOf(wk); });
   scan(/\b(next\s+)?(mon|tue|wed|thu|fri|sat|sun)(?:day|s|sday|nesday|rsday|rs|r|urday)?\b/gi, 3, m => {
     if (wd == null) wd = WDAYS[m[2].toLowerCase()];
     let n = (WDAYS[m[2].toLowerCase()] - t0.getDay() + 7) % 7; if (m[1] && n === 0) n = 7; return dayPlus(n);
@@ -100,7 +100,7 @@ function remRow(t, showSubj = true) {
   const late = isLate(t), dd = t.due ? daysTo(t.due) : null, [sn, sc] = remSubj(t);
   const cls = t.done ? ' done' : late ? ' late' : dd === 0 ? ' due-today' : dd === 1 ? ' due-soon' : '';
   return `<div class="task${cls}" data-task="${t.id}"><button class="tk-box" data-tick title="Done">${t.done ? '✓' : ''}</button>
-    <div class="tk-main"><b>${esc(t.text)}</b><span>${showSubj ? `<i style="--c:${esc(sc)}"></i>${esc(sn)}` : ''}${showSubj && t.due ? ' · ' : ''}${t.due ? `<em>${esc(dueLabel(t))}</em>` : ''}${t.note ? `<span class="tk-ni" title="Has a note">${icon('note')}</span>` : ''}${t.imgs?.length ? `<span class="tk-ni" title="${t.imgs.length} photo${t.imgs.length > 1 ? 's' : ''}">${icon('image')}</span>` : ''}</span></div></div>`;
+    <div class="tk-main"><b>${esc(t.text)}</b><span class="tk-meta">${showSubj ? `<i style="--c:${esc(sc)}"></i><span class="tk-subj">${esc(sn)}</span>` : ''}${showSubj && t.due ? '<span class="tk-dot">·</span>' : ''}${t.due ? `<em>${esc(dueLabel(t))}</em>` : ''}${t.note ? `<span class="tk-ni" title="Has a note">${icon('note')}</span>` : ''}${t.imgs?.length ? `<span class="tk-ni" title="${t.imgs.length} photo${t.imgs.length > 1 ? 's' : ''}">${icon('image')}</span>` : ''}</span></div></div>`;
 }
 taskRow = remRow;
 taskForm = (t, folderId) => remForm(t, folderId);
@@ -411,7 +411,7 @@ function pasteListFlow() {
         const inText = folderInText(line);
         items.push({ on: true, text: p.text, due: p.due, time: p.time, ...(inText ? { folderId: inText.id } : subj || {}) });
       }
-      prev.innerHTML = items.length ? `<div class="task-list">${items.map((it, i) => { const [sn, sc] = remSubj(it); return `<label class="task"><input type="checkbox" data-i="${i}" ${it.on ? 'checked' : ''}><div class="tk-main"><b>${esc(it.text)}</b><span><i style="--c:${esc(sc)}"></i>${esc(sn)}${it.due ? ' · <em>' + esc(dueLabel(it)) + '</em>' : ' · no date'}</span></div></label>`; }).join('')}</div>` : '';
+      prev.innerHTML = items.length ? `<div class="task-list">${items.map((it, i) => { const [sn, sc] = remSubj(it); return `<label class="task"><input type="checkbox" data-i="${i}" ${it.on ? 'checked' : ''}><div class="tk-main"><b>${esc(it.text)}</b><span class="tk-meta"><i style="--c:${esc(sc)}"></i><span class="tk-subj">${esc(sn)}</span><span class="tk-dot">·</span>${it.due ? '<em>' + esc(dueLabel(it)) + '</em>' : '<em>no date</em>'}</span></div></label>`; }).join('')}</div>` : '';
       const n = items.filter(x => x.on).length; ok.disabled = !n; ok.textContent = n ? `Add ${n} reminder${n > 1 ? 's' : ''}` : 'Add';
     };
     ta.addEventListener('input', build); ta.addEventListener('keydown', e => e.stopPropagation());
@@ -847,7 +847,7 @@ renderPlanner = async function (box) {
       : `<div class="rem-empty">${icon('check')}<b>${planFilter ? 'Nothing to do for ' + esc(subjInfo(planFilter).name) : 'Nothing to do'}</b></div>`;
   }
   $('[data-dyn]', root).innerHTML = `
-    ${fEx.length ? `<div class="ex-strip">` : '<div class="ex-strip" hidden>'}${fEx.map(x => { const d = daysTo(x.date); return `<button class="ex-chip" data-exam="${x.id}" style="--c:${esc(subjColor(x.folderId))}"><b>${d === 0 ? 'Today' : d}</b><span>${esc(x.title)}${d ? `<small>${d === 1 ? 'day' : 'days'}</small>` : ''}</span></button>`; }).join('')}<button class="ex-add" data-padd="exam">${icon('plus')}Exam</button></div>
+    ${fEx.length ? `<div class="ex-strip">` : '<div class="ex-strip" hidden>'}${fEx.map(x => { const d = daysTo(x.date); return `<button class="ex-chip" data-exam="${x.id}" style="--c:${esc(subjColor(x.folderId))}"><b>${d === 0 ? 'Today' : d}</b><span>${esc(x.title)}${d ? `<small>${d === 1 ? 'day' : 'days'}</small>` : ''}</span></button>`; }).join('')}<button class="ex-add" data-padd="exam">${icon('plus')}Exam</button>${exams.length - upEx.length ? `<button class="ex-add" data-past>${exams.length - upEx.length} past</button>` : ''}</div>
     <div class="pl-bar">
       <div class="pl-seg" data-group><button class="${!bySubj ? 'on' : ''}" data-v="date" title="Group by date">${icon('calendar')}Date</button><button class="${bySubj ? 'on' : ''}" data-v="subject" title="Group by subject">${icon('folder')}Subject</button></div>
       ${!bySubj ? `<div class="rem-chips pl-filter"><button class="chip${!planFilter ? ' on' : ''}" data-filt="">All</button>${chipKeys.map(k => { const s = subjInfo(k), n = open.filter(t => subjKey(t) === k).length; return `<button class="chip${planFilter === k ? ' on' : ''}" data-filt="${esc(k)}" style="--c:${esc(s.color)}"><i class="sdot"></i>${esc(s.name)}${n ? `<small>${n}</small>` : ''}</button>`; }).join('')}</div>` : '<span style="flex:1"></span>'}
@@ -864,6 +864,11 @@ function wirePlanner2(root, box) {
     if (c('[data-group] [data-v]')) { S.planGroup = c('[data-v]').dataset.v; saveSettings(); return again(); }
     if (c('[data-filt]')) { planFilter = c('[data-filt]').dataset.filt; return again(); }
     if (c('[data-sem]')) { if (await semesterForm()) again(); return; }
+    if (c('[data-past]')) {
+      const past = PLAN.exams.filter(x => daysTo(x.date) < 0).sort((a, b) => b.date.localeCompare(a.date));
+      const id = await menu('Past exams', past.map(x => ({ label: x.title, value: x.id, icon: 'calendar', hint: `${fmtDay(x.date)} · ${subjName(x.folderId)}` })));
+      const x = id && PLAN.exams.find(y => y.id === id); if (x && await examMenu(x)) again(); return;
+    }
     if (c('[data-pmenu]')) {
       const v = await menu('Planner', [{ label: S.planShowDone ? 'Hide finished tasks' : 'Show finished tasks', value: 'done', icon: 'check' },
         ...(PLAN.tasks.some(t => t.done) ? [{ label: 'Clear finished tasks', value: 'clear', icon: 'trash' }] : []),

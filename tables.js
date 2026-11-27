@@ -385,7 +385,7 @@ async function tableGraph(p, t) {
     // render the final picture off screen at high resolution
     const holder = document.createElement('div'); holder.style.cssText = 'position:absolute;left:-12000px;top:0'; document.body.appendChild(holder);
     const c = document.createElement('canvas'); c.width = 900; c.height = 540; holder.appendChild(c);
-    const ch = new window.Chart(c, cfg(3));
+    const ch = new window.Chart(c, cfg(2));                     // 1800×1080: sharp at the size it sits on the page, and about twice as quick to save as 3×
     const blob = await new Promise(r => c.toBlob(r, 'image/png')); ch.destroy(); holder.remove();
     const key = 'img_' + uid(); await db.put('blobs', blob, key);
     const tb = tableBox(p, t), W = Math.round(Math.min(560, p.w - 40)), H = Math.round(W * 540 / 900);
