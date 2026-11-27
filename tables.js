@@ -267,8 +267,9 @@ async function tableGraph(p, t) {
   const m = openModal(`<h2>Make a graph</h2>
     <div class="graph-wrap"><canvas class="graph-prev" width="680" height="400"></canvas></div>
     <div class="field"><label class="lbl">Type</label><div class="seg" data-k="type">${segHtml([['line', '📈 Line'], ['bar', '📊 Bar'], ['scatter', '⋰ Scatter'], ['pie', '◔ Pie']], v.type)}</div></div>
-    <div class="field"><label class="lbl">Across the bottom (x)</label><div class="seg" data-k="x">${segHtml(header.map((h, i) => [i, h]), v.x)}</div></div>
-    <div class="field"><label class="lbl">Values to plot (y) · tap to choose one or more</label><div class="seg ys">${header.map((h, i) => `<button class="chip${v.ys.includes(i) ? ' on' : ''}${numeric[i] ? '' : ' dim'}" data-y="${i}">${esc(h)}</button>`).join('')}</div></div>
+    <div class="field"><label class="lbl" data-xl>Across the bottom (x)</label><div class="seg" data-k="x">${segHtml(header.map((h, i) => [i, h]), v.x)}</div></div>
+    <div class="field"><label class="lbl" data-yl>Values to plot (y) · tap to choose one or more</label><div class="seg ys">${header.map((h, i) => `<button class="chip${v.ys.includes(i) ? ' on' : ''}${numeric[i] ? '' : ' dim'}" data-y="${i}" ${numeric[i] ? '' : 'disabled title="This column has no numbers"'}>${esc(h)}</button>`).join('')}</div>
+      <small class="hint graph-note" data-gnote hidden></small></div>
     <div class="field trend-field"><label class="lbl">Trendline (like Excel)</label><div class="seg" data-k="trend">${segHtml([['none', 'None'], ['linear', 'Linear'], ['poly', 'Polynomial'], ['exp', 'Exponential'], ['log', 'Logarithmic'], ['power', 'Power']], 'none')}</div>
       <div class="trend-opts" hidden><span class="poly-ord">Order <button class="icon-btn" data-ord="-1">−</button><b data-ordv>2</b><button class="icon-btn" data-ord="1">+</button></span>
         <label class="toggle"><input type="checkbox" checked data-eq><span>Show equation</span></label><label class="toggle"><input type="checkbox" checked data-r2><span>Show R²</span></label></div>
@@ -282,14 +283,32 @@ async function tableGraph(p, t) {
     if (v.trend === 'none' || v.type === 'pie') return [];
     return v.ys.map((c, k) => ({ c, k, ...fitTrend(rows.map((r, i) => [xOf(i), parseNum(r[c])]), v.trend, v.order) }));
   };
+  const sliceColor = i => i < CHART_COLORS.length ? CHART_COLORS[i] : `hsl(${Math.round((i * 137.508) % 360)}, 62%, 55%)`;   // enough distinct colours for any number of slices
+  const pieRows = () => { const c = v.ys[0]; return rows.map((r, i) => ({ i, label: String(r[v.x] ?? '').trim() || `Row ${i + 1}`, val: parseNum(r[c]) })); };
   const cfg = (dpr) => {
     const pie = v.type === 'pie', scatter = v.type === 'scatter';
+    if (pie) {
+      const all = pieRows(), keep = all.filter(d => d.val > 0), total = keep.reduce((a, d) => a + d.val, 0);
+      const pct = d => (d.val / total * 100);
+      const labelsPlugin = { id: 'pct', afterDatasetsDraw(ch) {
+        const x = ch.ctx, meta = ch.getDatasetMeta(0); x.save(); x.font = '700 13px -apple-system, system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+        meta.data.forEach((arc, i) => { const d = keep[i], p = pct(d); if (p < 4) return; const pos = arc.tooltipPosition(); x.fillStyle = '#fff'; x.shadowColor = 'rgba(0,0,0,.35)'; x.shadowBlur = 3; x.fillText(`${p >= 10 ? Math.round(p) : p.toFixed(1)}%`, pos.x, pos.y); });
+        x.restore();
+      } };
+      return {
+        type: 'pie', data: { labels: keep.map(d => d.label), datasets: [{ label: header[v.ys[0]], data: keep.map(d => d.val), backgroundColor: keep.map((_, i) => sliceColor(i)), borderColor: '#fff', borderWidth: 2 }] },
+        plugins: [labelsPlugin],
+        options: { animation: false, responsive: false, devicePixelRatio: dpr, layout: { padding: 8 },
+          plugins: { legend: { display: true, position: 'right', labels: { boxWidth: 14, padding: 10, generateLabels: ch => keep.map((d, i) => ({ text: `${d.label}  ${fmtN(d.val)} (${pct(d) >= 10 ? Math.round(pct(d)) : pct(d).toFixed(1)}%)`, fillStyle: sliceColor(i), strokeStyle: '#fff', index: i })) } },
+            title: { display: true, text: v.title || header[v.ys[0]], font: { size: 16, weight: '600' } } } },
+      };
+    }
     const labels = rows.map(r => r[v.x]);
-    const ys = pie ? v.ys.slice(0, 1) : v.ys;
+    const ys = v.ys;
     const datasets = ys.map((c, k) => ({
       label: header[c],
-      data: scatter ? rows.map(r => ({ x: parseNum(r[v.x]), y: parseNum(r[c]) })).filter(d => d.x !== null && d.y !== null) : rows.map(r => parseNum(r[c])),
-      borderColor: pie ? '#fff' : CHART_COLORS[k % 8], backgroundColor: pie ? rows.map((_, i) => CHART_COLORS[i % 8]) : CHART_COLORS[k % 8] + (v.type === 'bar' ? 'cc' : '33'),
+      data: scatter ? rows.map((r, i) => ({ x: xOf(i), y: parseNum(r[c]) })).filter(d => d.x !== null && d.y !== null) : rows.map(r => parseNum(r[c])),   // text x → 1, 2, 3… like the trendline
+      borderColor: CHART_COLORS[k % 8], backgroundColor: CHART_COLORS[k % 8] + (v.type === 'bar' ? 'cc' : '33'),
       borderWidth: 2, tension: 0.25, pointRadius: 4, fill: false,
     }));
     const tr = trends().filter(t => t.f), scatterX = rows.map((_, i) => xOf(i)).filter(Number.isFinite);
@@ -324,6 +343,17 @@ async function tableGraph(p, t) {
   };
   const draw = () => {
     const pie = v.type === 'pie';
+    if (pie && v.ys.length > 1) { v.ys = v.ys.slice(0, 1); $$('.ys [data-y]', m.el).forEach(b => b.classList.toggle('on', v.ys.includes(+b.dataset.y))); }
+    $('[data-xl]', m.el).textContent = pie ? 'Slice names' : 'Across the bottom (x)';
+    $('[data-yl]', m.el).textContent = pie ? 'Slice sizes · a pie shows one column' : 'Values to plot (y) · tap to choose one or more';
+    const note = $('[data-gnote]', m.el);
+    if (pie && v.ys.length) {
+      const all = pieRows(), out = all.filter(d => !(d.val > 0));
+      note.hidden = !out.length;
+      note.textContent = out.length ? `Left out of the pie: ${out.map(d => `${d.label} (${d.val === null ? 'empty' : d.val === 0 ? '0' : 'negative'})`).join(', ')}. A pie can only show amounts above 0.` : '';
+      if (!all.some(d => d.val > 0)) note.textContent = 'This column has no amounts above 0, so there is nothing to show as a pie.', note.hidden = false;
+    } else if (v.type === 'scatter' && v.ys.length && !xNumeric()) { note.hidden = false; note.textContent = `“${header[v.x]}” isn’t numbers, so the points are placed at 1, 2, 3… Pick a number column for x to plot real values.`; }
+    else note.hidden = true;
     $('.trend-field', m.el).hidden = pie;
     $('.trend-opts', m.el).hidden = v.trend === 'none';
     $('.poly-ord', m.el).style.display = v.trend === 'poly' ? '' : 'none';
@@ -337,9 +367,11 @@ async function tableGraph(p, t) {
   };
   $$('.seg[data-k]', m.el).forEach(s => wireSeg(s, x => { v[s.dataset.k] = s.dataset.k === 'x' ? +x : x; draw(); }));
   $('.ys', m.el).addEventListener('click', e => {
-    const b = e.target.closest('[data-y]'); if (!b) return;
-    const i = +b.dataset.y; v.ys = v.ys.includes(i) ? v.ys.filter(x => x !== i) : [...v.ys, i].sort((a, b) => a - b);
-    b.classList.toggle('on', v.ys.includes(i)); draw();
+    const b = e.target.closest('[data-y]'); if (!b || b.disabled) return;
+    const i = +b.dataset.y;
+    if (v.type === 'pie') v.ys = [i];                                  // a pie shows one column: tapping another switches to it
+    else v.ys = v.ys.includes(i) ? v.ys.filter(x => x !== i) : [...v.ys, i].sort((a, b) => a - b);
+    $$('.ys [data-y]', m.el).forEach(x => x.classList.toggle('on', v.ys.includes(+x.dataset.y))); draw();
   });
   m.el.addEventListener('click', e => { const o = e.target.closest('[data-ord]'); if (o) { v.order = clamp(v.order + +o.dataset.ord, 2, 6); draw(); } });
   $('[data-eq]', m.el).onchange = e => { v.eq = e.target.checked; draw(); };
@@ -348,6 +380,7 @@ async function tableGraph(p, t) {
   $('[name=title]', m.el).addEventListener('keydown', e => e.stopPropagation());
   $('[data-ok]', m.el).onclick = guard(async () => {
     if (!v.ys.length) return toast('Choose at least one column to plot');
+    if (v.type === 'pie' && !pieRows().some(d => d.val > 0)) return toast('This column has no amounts above 0 to show as a pie');
     // render the final picture off screen at high resolution
     const holder = document.createElement('div'); holder.style.cssText = 'position:absolute;left:-12000px;top:0'; document.body.appendChild(holder);
     const c = document.createElement('canvas'); c.width = 900; c.height = 540; holder.appendChild(c);
@@ -357,8 +390,9 @@ async function tableGraph(p, t) {
     const tb = tableBox(p, t), W = Math.round(Math.min(560, p.w - 40)), H = Math.round(W * 540 / 900);
     let x = tb[2] + 30, y = tb[1];
     if (x + W > p.w - 10) { x = clamp(tb[0], 20, Math.max(20, p.w - W - 20)); y = tb[3] + 24; }
+    const before = snap(p);
     if (y + H + 30 > p.h) { if (p.bgKey) { p.bgW ||= p.w; p.bgH ||= p.h; } p.h = Math.ceil((y + H + 60) / 10) * 10; layout(); }
-    const before = snap(p), im = { id: uid(), key, x: Math.round(x), y: Math.round(y), w: W, h: H };
+    const im = { id: uid(), key, x: Math.round(x), y: Math.round(y), w: W, h: H };
     p.images.push(im); pushUndo(p, before); refreshPage(p); m.close();
     setTool('lasso'); setSelection(p, new Set(), new Set([im]));
     toast('Graph added. Drag to move, corner dot to resize.', 2600);
